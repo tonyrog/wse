@@ -1,0 +1,23 @@
+<html>
+<head>
+<title>Pure WSE page</title>
+
+<script src='wse.js'></script>
+
+<script>
+
+window.onload = function() {
+   if (Wse.open("ws://"+location.hostname+":1234/websession")) {
+      Wse.start('raphael', 'demo', ["i1"]);
+   }
+   else
+     alert("WebSockets not supported");
+};
+
+</script>
+</head>
+<body>
+<p>Demo1</p>
+<div id="i1"></div>
+</body>
+</html>
