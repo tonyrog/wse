@@ -93,6 +93,7 @@ wait_event(ID,Timeout) ->
 
 %% Short cuts to DOM access
 createElement(Ws, Name) ->
+    %% io:format("createElement: ~p\n", [Name]),
     {ok,E} = call(Ws, document(), createElement, [Name]),
     E.
 
@@ -103,6 +104,19 @@ createTextNode(Ws, Text) ->
 appendChild(Ws, Element, Child) ->
     {ok,_} = call(Ws, Element, appendChild, [Child]),
     ok.
+
+
+load_image(Ws, Src) ->
+    Image = createElement(Ws, "img"),
+    set(Ws, Image, "src", Src),
+    set(Ws, Image, "style.display", "none"),
+    %% set(Ws, Image, "type", "image/jpeg");
+    {ok,Head} = call(Ws, document(), getElementsByTagName, ["head"]),
+    {ok,Elem} = get(Ws, Head, 0),
+    appendChild(Ws, Elem, Image),
+    %% wait for image to load?
+    {ok,Image}.
+
 
 %% Short cut to dynamically load java script library
 load(Ws, Library) ->
@@ -120,7 +134,8 @@ load(Ws, Library) ->
     {ok,Elem} = get(Ws, Head, 0),
     appendChild(Ws, Elem, Script1),
     appendChild(Ws, Elem, Script2),
-    wait_event(ID, 5000),
+    Result = wait_event(ID, 5000),
+    io:format("wait event = ~p\n", [Result]),
     ok.
 
 

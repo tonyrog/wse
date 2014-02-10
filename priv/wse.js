@@ -12,7 +12,7 @@ Base64Class.prototype.encode = function (input) {
     var output = "";
     var chr1, chr2, chr3, enc1, enc2, enc3, enc4;
     var i = 0;
-	
+
     while (i < input.length) {
 	chr1 = input.charCodeAt(i++);
 	chr2 = input.charCodeAt(i++);
@@ -28,7 +28,8 @@ Base64Class.prototype.encode = function (input) {
 	} else if (isNaN(chr3)) {
 	    enc4 = 64;
 	}
-	    
+//	output.push(enc1); output.push(enc2);
+//      output.push(enc3); output.push(enc4);
 	output = output +
 	    this._keyStr.charAt(enc1) + this._keyStr.charAt(enc2) +
 	    this._keyStr.charAt(enc3) + this._keyStr.charAt(enc4);
@@ -232,6 +233,7 @@ EiClass.prototype.tuple = function () {
 
 EiClass.prototype.encode_inner = function (Obj) {
     var func = 'encode_' + typeof(Obj);
+    // console.debug("inner_func = " + func);
     return this[func](Obj);
 };
 
@@ -662,10 +664,12 @@ function WseClass() {
 
 WseClass.prototype.encode = function(Obj) {
     return Base64.encode(Ei.encode(Obj));
+//      return Ei.encode(Obj);
 };
 
 WseClass.prototype.decode = function(Data) {
    return Ei.decode(Base64.decode(Data));
+//    return Ei.decode(Data);
 };
 
 WseClass.prototype.open = function(url) {
@@ -733,7 +737,7 @@ WseClass.prototype.encode_value = function(Obj) {
 	    return Ei.tuple(this.ObjectTag,Ei.atom("window"));
 	if (Obj == window.document) 
 	    return Ei.tuple(this.ObjectTag,Ei.atom("document"));
-	if ('id' in Obj) {
+	if (('id' in Obj) && Obj.id) {
 	    if (Obj == document.getElementById(Obj.id))
 		return Ei.tuple(this.ObjectTag,Obj.id);
 	}
@@ -868,7 +872,7 @@ WseClass.prototype.dispatch = function (Request) {
     var iref;
     var value;
     var r;
-    // debug("");
+    var t;
 
     if (Ei.isTupleSize(Request, 3)) {
 	var argv = Request.value;
@@ -900,7 +904,7 @@ WseClass.prototype.dispatch = function (Request) {
 	var argv = r.value;
 	if ((argv.length == 3) && Ei.eqAtom(argv[0],"send")) {
 	    var Cell = document.getElementById(argv[1]);
-	    // debug("SEND");
+	    // console.debug("SEND");
 	    if (typeof(argv[2]) == "string") {
 		Cell.innerHTML = Ei.pp(argv[2]);
 	    }
@@ -913,7 +917,7 @@ WseClass.prototype.dispatch = function (Request) {
 	    value = this.OkTag;  // FIXME
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"new")) {
-	    // debug("NEW_OBJECT");
+	    // console.debug("NEW_OBJECT");
 	    var obj = new Object();
 	    var fn  = window[this.decode_value(argv[1])];
 	    fn.apply(obj, this.decode_value(argv[2]));
@@ -921,11 +925,11 @@ WseClass.prototype.dispatch = function (Request) {
 	    value = this.encode_value(obj);
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"newf")) {
-	    // debug("NEW_FUNCTION");
+	    // console.debug("NEW_FUNCTION");
 	    // FIXME!
 	    var estr = "new Function("+Ei.pp(argv[1])+","+
 		argv[2]+")";
-	    debug("eval : " + estr);
+	    // console.debug("eval : " + estr);
 	    var fn = eval(estr);
 	    value = this.encode_value(fn);	    
 	}
@@ -933,7 +937,8 @@ WseClass.prototype.dispatch = function (Request) {
 	    var fn   = this.decode_value(argv[1]);
 	    var objb = this.decode_value(argv[2]);
 	    var args = this.decode_value(argv[3]);
-	    var val  = window[fn].apply(objb, args);
+	    var val;
+	    val = window[fn].apply(objb, args);
 	    value = Ei.tuple(this.OkTag, this.encode_value(val));
 	}
 	else if ((argv.length == 5) && Ei.eqAtom(argv[0],"call")) {
@@ -942,9 +947,15 @@ WseClass.prototype.dispatch = function (Request) {
 	    var objb = this.decode_value(argv[3]);
 	    var args = this.decode_value(argv[4]);
 	    var val;
-	    // debug("call=" + Ei.pp(r));
+	    var vale;
+	    // console.debug("call=" + Ei.pp(argv[1]) + "," +
+		//	  Ei.pp(argv[2]) + "," +
+		//	  Ei.pp(argv[3]) + "," +
+		//	  Ei.pp(argv[4])),
 	    val  = (obja[meth]).apply(objb, args);
-	    value = Ei.tuple(this.OkTag, this.encode_value(val));
+	    vale = this.encode_value(val);
+//	    console.debug("vale = " + Ei.pp(vale));
+	    value = Ei.tuple(this.OkTag, vale);
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"get")) {
 	    var obj   = this.decode_value(argv[1]);
@@ -966,14 +977,21 @@ WseClass.prototype.dispatch = function (Request) {
 	    }
 	}
     }
-    if (iref == 0)
+    if (iref == 0) {
+	// console.debug("ival=0");
 	return undefined;
-    if (iref > 0) {
-	if (value == undefined)
-	    value = Ei.tuple(this.ErrorTag, Ei.atom("badarg"));
-	return Ei.tuple(this.ReplyTag,iref,value);
     }
-    return Ei.tuple(this.NoReplyTag,-iref);
+    else if (iref > 0) {
+	if (value == undefined) {
+	    value = Ei.tuple(this.ErrorTag, Ei.atom("badarg"));
+	}
+	t = Ei.tuple(this.ReplyTag,iref,value);
+    }
+    else {
+	t = Ei.tuple(this.NoReplyTag,-iref);
+    }
+    // console.debug("t = " + Ei.pp(t));
+    return t;
 };
 
 //

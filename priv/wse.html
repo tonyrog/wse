@@ -8,7 +8,7 @@
 
 window.onload = function() {
    if (Wse.open("ws://"+location.hostname+":1234/websession")) {
-      Wse.start('raphael', 'demo', ["i1"]);
+      Wse.start('raphael_demo', 'run', ["i1"]);
    }
    else
      alert("WebSockets not supported");
@@ -17,7 +17,6 @@ window.onload = function() {
 </script>
 </head>
 <body>
-<p>Demo1</p>
-<div id="i1"></div>
+<div id="i1" width=640 height=480></div>
 </body>
 </html>

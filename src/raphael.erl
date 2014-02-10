@@ -72,33 +72,6 @@ path(Ws,Paper,SVG) ->
 path(Ws,Paper) ->
     wse:call(Ws,Paper,path,[]).
 
-%%
-%% Small demo
-%%
-demo(Ws, Where) ->
-    %% FIXME: only load once per document!
-    ok = wse:load(Ws, "raphael-min.js"),
-    {ok,Paper} = new(Ws, Where, 120, 50),
-    {ok,C1} = circle(Ws, Paper, 10, 10, 10),
-    attr(Ws, C1, "fill", "#FF0000"),
-    {ok,C2} = circle(Ws, Paper, 40, 10, 10),
-    attr(Ws, C2, "fill", "#00FF00"),
-    {ok,C3} = circle(Ws, Paper, 70, 10, 10),
-    attr(Ws, C3, "fill", "#0000FF"),
-    {ok,C4} = circle(Ws, Paper, 100, 10, 10),
-    attr(Ws, C4, "fill", "90-#fff-#000"),    
-    
-    {ok,R1} = rect(Ws, Paper, 10, 30, 10, 10),
-    attr(Ws, R1, "fill", "#FF0000"),    
-    {ok,R2} = rect(Ws, Paper, 40, 30, 10, 10),
-    attr(Ws, R2, "fill", "#00FF00"),
-    
-    {ok,R3} = rect(Ws, Paper, 70, 30, 10, 10),
-    attr(Ws, R3, "fill", "#0000FF"),
-    {ok,R4} = rect(Ws, Paper, 100, 30, 10, 10),
-    attr(Ws, R4, "fill", "90-#fff-#000").
-
-
 
 
     
