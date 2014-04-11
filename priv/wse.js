@@ -28,8 +28,6 @@ Base64Class.prototype.encode = function (input) {
 	} else if (isNaN(chr3)) {
 	    enc4 = 64;
 	}
-//	output.push(enc1); output.push(enc2);
-//      output.push(enc3); output.push(enc4);
 	output = output +
 	    this._keyStr.charAt(enc1) + this._keyStr.charAt(enc2) +
 	    this._keyStr.charAt(enc3) + this._keyStr.charAt(enc4);
@@ -126,38 +124,38 @@ UTF8Class.prototype.decode = function(utftext) {
 var UTF8 = new UTF8Class();
 
 function EiClass() {
-	this.MAGIC = String.fromCharCode(131);
-	this.SMALL_ATOM = String.fromCharCode(115);
-	this.ATOM = String.fromCharCode(100);
-	this.BINARY = String.fromCharCode(109);
-	this.SMALL_INTEGER = String.fromCharCode(97);
-	this.INTEGER = String.fromCharCode(98);
-	this.SMALL_BIG = String.fromCharCode(110);
-	this.LARGE_BIG = String.fromCharCode(111);
-	this.FLOAT = String.fromCharCode(99);
-	this.NEW_FLOAT = String.fromCharCode(70);
-	this.STRING = String.fromCharCode(107);
-	this.LIST = String.fromCharCode(108);
-	this.SMALL_TUPLE = String.fromCharCode(104);
-	this.LARGE_TUPLE = String.fromCharCode(105);
-	this.NIL = String.fromCharCode(106);
-	this.ZERO = String.fromCharCode(0);
+    this.MAGIC = String.fromCharCode(131);
+    this.SMALL_ATOM = String.fromCharCode(115);
+    this.ATOM = String.fromCharCode(100);
+    this.BINARY = String.fromCharCode(109);
+    this.SMALL_INTEGER = String.fromCharCode(97);
+    this.INTEGER = String.fromCharCode(98);
+    this.SMALL_BIG = String.fromCharCode(110);
+    this.LARGE_BIG = String.fromCharCode(111);
+    this.FLOAT = String.fromCharCode(99);
+    this.NEW_FLOAT = String.fromCharCode(70);
+    this.STRING = String.fromCharCode(107);
+    this.LIST = String.fromCharCode(108);
+    this.SMALL_TUPLE = String.fromCharCode(104);
+    this.LARGE_TUPLE = String.fromCharCode(105);
+    this.NIL = String.fromCharCode(106);
+    this.ZERO = String.fromCharCode(0);
 };
 
 function EiAtom(Obj) {
-	this.type = "Atom";
-	this.value = Obj;
-	this.toString = function () {
-		return Obj;
-	};
+    this.type = "Atom";
+    this.value = Obj;
+    this.toString = function () {
+	return Obj;
+    };
 };
 
 function EiBinary(Obj) {
-	this.type = "Binary";
-	this.value = Obj;
-	this.toString = function () {
-		return "<<\"" + Obj + "\">>";
-	};
+    this.type = "Binary";
+    this.value = Obj;
+    this.toString = function () {
+	return "<<\"" + Obj + "\">>";
+    };
 };
 
 function EiTuple(Arr) {
@@ -201,9 +199,21 @@ EiClass.prototype.isTupleSize = function(Obj,n) {
 	(Obj.length == n);
 };
 
+EiClass.prototype.byte_size = function (Obj) {
+    return this.byte_size_inner(Obj);
+};
 
 EiClass.prototype.encode = function (Obj) {
-	return this.MAGIC + this.encode_inner(Obj);
+    var data, sz;
+    data = this.MAGIC + this.encode_inner(Obj);
+    sz = 1+this.byte_size(Obj);
+    if (data.length != sz) {
+	console.debug("encode size is different from byte size!");
+	console.debug("data.length = " + data.length);
+	console.debug("obj.byte_size = " + sz);
+	console.debug("obj = " + Ei.pp(Obj));
+    }
+    return data;
 };
 
 EiClass.prototype.decode = function (S) {
@@ -229,6 +239,105 @@ EiClass.prototype.tuple = function () {
     return new EiTuple([].splice.call(arguments,0));
 };
 
+// - EXTERNAL SIZE Calculation
+// Preparation for Typed Array usage!
+//
+EiClass.prototype.byte_size_inner = function (Obj) {
+    var func = 'byte_size_' + typeof(Obj);
+    return this[func](Obj);
+}
+
+EiClass.prototype.byte_size_string = function (Obj) {
+    return 1+2+Obj.length;
+}
+
+EiClass.prototype.byte_size_boolean = function (Obj) {
+    if (Obj) return 1+1+4; // small_atom(true)
+    else return 1+1+5; // small_atom(false)
+}
+
+EiClass.prototype.byte_size_number = function (Obj) {
+    if (Obj % 1 === 0)  // hack to chek for integer
+	return this.byte_size_integer(Obj);
+    else 
+	return this.byte_size_float(Obj);
+}
+
+EiClass.prototype.byte_size_integer = function (Obj) {
+    if ((Obj >= 0) && (Obj < 256))
+	return 1+1;  // small_integer (uint8)
+    else if ((Obj >= -134217728) && (Obj <= 134217727)) 
+	return 1+4;  // integer (int32)
+    return this.byte_size_bignum(Obj);
+}
+
+EiClass.prototype.byte_size_bignum = function (Obj) {
+    return 1+1+1+4;  // bigint will never (not until js support 64 bit)
+}
+
+EiClass.prototype.byte_size_float = function (Obj) {
+    return 1+8;  // new_float ext
+}
+
+EiClass.prototype.byte_size_object = function (Obj) {
+    if (Obj.type === "Atom")   return this.byte_size_atom(Obj);
+    if (Obj.type === "Binary") return this.byte_size_binary(Obj);
+    if (Obj.type === "Tuple")  return this.byte_size_tuple(Obj);
+    if (Obj.constructor.toString().indexOf("Array") !== -1)
+	return this.byte_size_array(Obj);
+    return this.byte_size_associative_array(Obj);
+}
+
+EiClass.prototype.byte_size_atom = function (Obj) {
+//    if (Obj.value.length < 256)
+//	return 1+1+Obj.value.length;
+//    else
+	return 1+2+Obj.value.length;
+}
+
+EiClass.prototype.byte_size_binary = function (Obj) {
+    return 1+4+Obj.value.length;
+}
+
+EiClass.prototype.byte_size_tuple = function (Obj) {
+    var sum = 1;  // tag
+    var i;
+    if (Obj.length < 256)
+	sum += 1;
+    else 
+	sum += 4;
+    for (i = 0; i < Obj.length; i++)
+	sum += this.byte_size_inner(Obj.value[i]);
+    return sum;
+}
+
+EiClass.prototype.byte_size_array = function (Obj) {
+    var sum = 1+4;  // tag+length-bytes
+    var i;
+    for (i = 0; i < Obj.length; i++)
+	sum += this.byte_size_inner(Obj[i]);
+    sum +=1; // nil byte
+    return sum; 
+}
+
+EiClass.prototype.byte_size_associative_array = function (Obj) {
+    var sum = 1+4;  // list+length-bytes
+    var key;
+    for (key in Obj) {
+	if (Obj.hasOwnProperty(key)) {
+	    var klen = key.length;
+	    if (klen < 256) 
+		sum += 1+1+klen;
+	    else
+		sum += 1+2+klen;
+	    sum += this.byte_size_inner(Obj[key]);
+	    sum += 1+1;  // small_tuple (2)
+	}
+    }
+    sum += 1;  // nil byte
+    return sum;
+}
+
 // - ENCODING -
 
 EiClass.prototype.encode_inner = function (Obj) {
@@ -238,7 +347,7 @@ EiClass.prototype.encode_inner = function (Obj) {
 };
 
 EiClass.prototype.encode_string = function (Obj) {
-    return this.STRING + this.int_to_bytes(Obj.length, 2) + Obj;
+    return this.STRING + this.uint16_to_bytes(Obj.length) + Obj;
 };
 
 EiClass.prototype.encode_boolean = function (Obj) {
@@ -259,31 +368,37 @@ EiClass.prototype.encode_number = function (Obj) {
     }
     
     // Small int...
-    if (isInteger && Obj >= 0 && Obj < 256) {
-	return this.SMALL_INTEGER + this.int_to_bytes(Obj, 1);
+    if (isInteger && (Obj >= 0) && (Obj < 256)) {
+	return this.SMALL_INTEGER + this.uint8_to_bytes(Obj);
     }
 
-    // 4 byte int...
-    if (isInteger && Obj >= -134217728 && Obj <= 134217727) {
-	return this.INTEGER + this.int_to_bytes(Obj, 4);
+    // 4 byte int... uint32! will take care of the encoding
+    if (isInteger && (Obj >= -134217728) && (Obj <= 134217727)) {
+	return this.INTEGER + this.uint32_to_bytes(Obj);
     }
 
     // Bignum...
     s = this.bignum_to_bytes(Obj);
     if (s.length < 256) {
-	return this.SMALL_BIG + this.int_to_bytes(s.length - 1, 1) + s;
+	return this.SMALL_BIG + this.uint8_to_bytes(s.length - 1) + s;
     } else {
-	return this.LARGE_BIG + this.int_to_bytes(s.length - 1, 4) + s;
+	return this.LARGE_BIG + this.uint32_to_bytes(s.length - 1) + s;
     }
 };
 
 EiClass.prototype.encode_float = function (Obj) {
-    // float...
-    var s = Obj.toExponential();
-    while (s.length < 31) {
-	s += this.ZERO;
-    }
-    return this.FLOAT + s;
+    var buffer = new Uint8Array(8);
+    var dv = new DataView(buffer);
+    dv.setFloat64(0, Obj, false);  // store float as big endian 64 
+    return this.NEW_FLOAT +
+	String.fromCharCode(buffer[0]) +
+	String.fromCharCode(buffer[1]) +
+	String.fromCharCode(buffer[2]) +
+	String.fromCharCode(buffer[3]) +
+	String.fromCharCode(buffer[4]) +
+	String.fromCharCode(buffer[5]) +
+	String.fromCharCode(buffer[6]) +
+	String.fromCharCode(buffer[7]);
 };
 
 EiClass.prototype.encode_object = function (Obj) {
@@ -308,117 +423,176 @@ EiClass.prototype.encode_object = function (Obj) {
 };
 
 EiClass.prototype.encode_atom = function (Obj) {
-	return this.ATOM + this.int_to_bytes(Obj.value.length, 2) + Obj.value;
+    var L = Obj.value.length;
+//    if (L < 256)
+//	return this.SMALL_ATOM + this.uint8_to_bytes(L) + Obj.value;
+//    else
+	return this.ATOM + this.uint16_to_bytes(L) + Obj.value;
 };
 
 EiClass.prototype.encode_binary = function (Obj) {
-	return this.BINARY + this.int_to_bytes(Obj.value.length, 4) + Obj.value;
+    return this.BINARY + this.uint32_to_bytes(Obj.value.length) + Obj.value;
 };
 
 EiClass.prototype.encode_tuple = function (Obj) {
-	var i, s = "";
-	if (Obj.length < 256) {
-		s += this.SMALL_TUPLE + this.int_to_bytes(Obj.length, 1);
-	} else {
-		s += this.LARGE_TUPLE + this.int_to_bytes(Obj.length, 4);
-	}
-	for (i = 0; i < Obj.length; i++) {
-		s += this.encode_inner(Obj.value[i]);
-	}
-	return s;
+    var i, s = "";
+    var L = Obj.length;
+    if (L < 256) {
+	s += this.SMALL_TUPLE + this.uint8_to_bytes(L);
+    } else {
+	s += this.LARGE_TUPLE + this.uint32_to_bytes(L);
+    }
+    for (i = 0; i < Obj.length; i++) {
+	s += this.encode_inner(Obj.value[i]);
+    }
+    return s;
 };
 
 EiClass.prototype.encode_array = function (Obj) {
-	var i, s = this.LIST + this.int_to_bytes(Obj.length, 4);
-	for (i = 0; i < Obj.length; i++) {
-		s += this.encode_inner(Obj[i]);
-	}
-	s += this.NIL;
-	return s;
+    var i, s = this.LIST + this.uint32_to_bytes(Obj.length);
+    for (i = 0; i < Obj.length; i++) {
+	s += this.encode_inner(Obj[i]);
+    }
+    s += this.NIL;
+    return s;
 };
 
 EiClass.prototype.encode_associative_array = function (Obj) {
-	var key, Arr = [];
-	for (key in Obj) {
-		if (Obj.hasOwnProperty(key)) {
-			Arr.push(this.tuple(this.atom(key), Obj[key]));
-		}
+    var key, Arr = [];
+    for (key in Obj) {
+	if (Obj.hasOwnProperty(key)) {
+	    Arr.push(this.tuple(this.atom(key), Obj[key]));
 	}
-	return this.encode_array(Arr);
+    }
+    return this.encode_array(Arr);
 };
 
 // - DECODING -
 
 EiClass.prototype.decode_inner = function (S) {
-	var Type = S[0];
-	S = S.substring(1);
-	switch (Type) {
-	case this.SMALL_ATOM:
-		return this.decode_atom(S, 1);
-	case this.ATOM:
-		return this.decode_atom(S, 2);
-	case this.BINARY:
-		return this.decode_binary(S);
-	case this.SMALL_INTEGER:
-		return this.decode_integer(S, 1);
-	case this.INTEGER:
-		return this.decode_integer(S, 4);
-	case this.SMALL_BIG:
-		return this.decode_big(S, 1);
-	case this.LARGE_BIG:
-		return this.decode_big(S, 4);
-	case this.FLOAT:
-		return this.decode_float(S);
-	case this.NEW_FLOAT:
-		return this.decode_new_float(S);
-	case this.STRING:
-		return this.decode_string(S);
-	case this.LIST:
-		return this.decode_list(S);
-	case this.SMALL_TUPLE:
-		return this.decode_tuple(S, 1);
-	case this.LARGE_TUPLE:
-		return this.decode_tuple(S, 4);
-	case this.NIL:
-		return this.decode_nil(S);
-	default:
-		throw ("Unexpected BERT type: " + S.charCodeAt(0));
-	}
+    var Type = S[0];
+    S = S.substring(1);
+    // console.debug("decode_inner: "+Type);
+    switch (Type) {
+    case this.SMALL_ATOM:
+	return this.decode_small_atom(S);
+    case this.ATOM:
+	return this.decode_atom(S);
+    case this.BINARY:
+	return this.decode_binary(S);
+    case this.SMALL_INTEGER:
+	return this.decode_small_integer(S);
+    case this.INTEGER:
+	return this.decode_integer(S);
+    case this.SMALL_BIG:
+	return this.decode_small_big(S);
+    case this.LARGE_BIG:
+	return this.decode_large_big(S);
+    case this.FLOAT:
+	return this.decode_float(S);
+    case this.NEW_FLOAT:
+	return this.decode_new_float(S);
+    case this.STRING:
+	return this.decode_string(S);
+    case this.LIST:
+	return this.decode_list(S);
+    case this.SMALL_TUPLE:
+	return this.decode_small_tuple(S);
+    case this.LARGE_TUPLE:
+	return this.decode_large_tuple(S);
+    case this.NIL:
+	return this.decode_nil(S);
+    default:
+	throw ("Unexpected BERT type: " + Type);
+    }
 };
 
-EiClass.prototype.decode_atom = function (S, Count) {
-	var Size, Value;
-	Size = this.bytes_to_int(S, Count);
-	S = S.substring(Count);
-	Value = S.substring(0, Size);
-	if (Value === "true") {
-	    Value = true;
-	}
-	else if (Value === "false") {
-	    Value = false;
-	}
-	return { term: this.atom(Value), rest:  S.substring(Size) };
+EiClass.prototype.read_uint8 = function (S) {
+    return S.charCodeAt(0);
+};
+
+EiClass.prototype.read_uint16 = function (S) {
+    var X0 = S.charCodeAt(0);
+    var X1 = S.charCodeAt(1);
+    return (X0<<8)+X1;
+};
+
+EiClass.prototype.read_uint32 = function (S) {
+    var X0 = S.charCodeAt(0);
+    var X1 = S.charCodeAt(1);
+    var X2 = S.charCodeAt(2);
+    var X3 = S.charCodeAt(3);
+    return (X0<<24)+(X1<<16)+(X2<<8)+X3;
+};
+
+EiClass.prototype.read_int32 = function (S) {
+    var X = this.read_uint32(S);
+    if (X >= 0x80000000)
+	X = -(~X+1);
+    return X;
+};
+
+EiClass.prototype.decode_atom = function (S) {
+    var Size, Value;
+    Size = this.read_uint16(S);
+    S = S.substring(2);
+    Value = S.substring(0, Size);
+    if (Value === "true") {
+	Value = true;
+    }
+    else if (Value === "false") {
+	Value = false;
+    }
+    return { term: this.atom(Value), rest:  S.substring(Size) };
+};
+
+EiClass.prototype.decode_small_atom = function (S) {
+    var Size, Value;
+    Size = this.decode_uint8(S);
+    S = S.substring(1);
+    Value = S.substring(0, Size);
+    if (Value === "true") {
+	Value = true;
+    }
+    else if (Value === "false") {
+	Value = false;
+    }
+    return { term: this.atom(Value), rest:  S.substring(Size) };
 };
 
 EiClass.prototype.decode_binary = function (S) {
-	var Size = this.bytes_to_int(S, 4);
-	S = S.substring(4);
-	return { term: this.binary(S.substring(0, Size)), 
-		 rest: S.substring(Size) };
+    var Size = this.read_uint32(S);
+    S = S.substring(4);
+    return { term: this.binary(S.substring(0, Size)), 
+	     rest: S.substring(Size) };
 };
 
-EiClass.prototype.decode_integer = function (S, Count) {
-	var Value = this.bytes_to_int(S, Count);
-	S = S.substring(Count);
-	return { term: Value, rest: S };
+EiClass.prototype.decode_small_integer = function (S) {
+    var Value = this.read_uint8(S);
+    S = S.substring(1);
+    return { term: Value, rest: S };
 };
 
-EiClass.prototype.decode_big = function (S, Count) {
-	var Size, Value;
-	Size = this.bytes_to_int(S, Count);
-	S = S.substring(Count);
-	Value = this.bytes_to_bignum(S, Size);
-	return { value : Value, rest: S.substring(Size + 1) };
+EiClass.prototype.decode_integer = function (S) {
+    var Value = this.read_int32(S);
+    S = S.substring(4);
+    return { term: Value, rest: S };
+};
+
+EiClass.prototype.decode_small_big = function (S) {
+    var Size, Value;
+    Size = this.read_uint8(S);
+    S = S.substring(1);
+    Value = this.bytes_to_bignum(S, Size);
+    return { value : Value, rest: S.substring(Size + 1) };
+};
+
+EiClass.prototype.decode_large_big = function (S) {
+    var Size, Value;
+    Size = this.read_uint32(S);
+    S = S.substring(4);
+    Value = this.bytes_to_bignum(S, Size);
+    return { value : Value, rest: S.substring(Size + 1) };
 };
 
 EiClass.prototype.decode_float = function (S) {
@@ -427,26 +601,29 @@ EiClass.prototype.decode_float = function (S) {
 	     rest: S.substring(Size) };
 };
 
-// FIXME
 EiClass.prototype.decode_new_float = function (S) {
-    var Size = 8;
-    return { term: parseFloat(S.substring(0, Size)), 
-	     rest: S.substring(Size) };
+    var buffer = new Uint8Array(8);
+    var dv;
+    for (var i = 0; i < 8; i++) buffer[i] = S[i];
+    dv = new DataView(buffer);
+    return { term: dv.getFloat64(0, false),
+	     rest: S.substring(8) };
 };
 
 EiClass.prototype.decode_string = function (S) {
-	var Size = this.bytes_to_int(S, 2);
-	S = S.substring(2);
-	return { term: S.substring(0, Size), rest:  S.substring(Size) };
+    var Size = this.read_uint16(S);
+    S = S.substring(2);
+    return { term: S.substring(0, Size), rest:  S.substring(Size) };
 };
 
 //
 // Special hack for argument lists  ['array',64,65,66,67]
 // to separate this in the erlang term_to_binary from a string!
+// also make sure [array|T] is encoded as [array,array|T]
 //
 EiClass.prototype.decode_list = function (S) {
     var Size, i, El, LastChar, Arr = [];
-    Size = this.bytes_to_int(S, 4);
+    Size = this.read_uint32(S);
     S = S.substring(4);
     for (i = 0; i < Size; i++) {
 	El = this.decode_inner(S);
@@ -462,10 +639,22 @@ EiClass.prototype.decode_list = function (S) {
     return { term: Arr, rest: S };
 };
 
-EiClass.prototype.decode_tuple = function (S, Count) {
+EiClass.prototype.decode_small_tuple = function (S) {
     var Size, i, El, Arr = [];
-    Size = this.bytes_to_int(S, Count);
-    S = S.substring(Count);
+    Size = this.read_uint8(S);
+    S = S.substring(1);
+    for (i = 0; i < Size; i++) {
+	El = this.decode_inner(S);
+	Arr.push(El.term);
+	S = El.rest;
+    }
+    return { term: new EiTuple(Arr), rest: S };
+};
+
+EiClass.prototype.decode_large_tuple = function (S) {
+    var Size, i, El, Arr = [];
+    Size = this.read_uint32(S);
+    S = S.substring(4);
     for (i = 0; i < Size; i++) {
 	El = this.decode_inner(S);
 	Arr.push(El.term);
@@ -478,56 +667,25 @@ EiClass.prototype.decode_nil = function (S) {
 	return { term: [], rest: S };
 };
 
+// Fixme use Uint8Array!!
 
+EiClass.prototype.uint8_to_bytes = function (X) {
+    return String.fromCharCode(X & 0xff);
+}
+
+EiClass.prototype.uint16_to_bytes = function (X) {
+    return String.fromCharCode((X >> 8) & 0xff) +
+	String.fromCharCode(X & 0xff);
+}
+
+EiClass.prototype.uint32_to_bytes = function (X) {
+    return String.fromCharCode((X >> 24) & 0xff) +
+	String.fromCharCode((X >> 16) & 0xff) +
+	String.fromCharCode((X >> 8) & 0xff) +
+	String.fromCharCode(X & 0xff);
+}
 
 // - UTILITY FUNCTIONS -
-
-// Encode an integer to a big-endian byte-string of length Length.
-// Throw an exception if the integer is too large
-// to fit into the specified number of bytes.
-EiClass.prototype.int_to_bytes = function (Int, Length) {
-    var isNegative, OriginalInt, i, Rem, s = "";
-    isNegative = (Int < 0);
-    if (isNegative) {
-	Int = Int * (0 - 1);
-    }
-    OriginalInt = Int;
-    for (i = 0; i < Length; i++) {
-	Rem = Int % 256;
-	if (isNegative) {
-	    Rem = 255 - Rem;
-	}
-	s = String.fromCharCode(Rem) + s;
-	Int = Math.floor(Int / 256);
-    }
-    if (Int > 0) {
-	throw ("Argument out of range: " + OriginalInt);
-    }
-    return s;
-};
-
-// Read a big-endian encoded integer from the first Length bytes
-// of the supplied string.
-EiClass.prototype.bytes_to_int = function (S, Length) {
-    var isNegative, i, n, Num = 0;
-    isNegative = (S.charCodeAt(0) > 128);
-    for (i = 0; i < Length; i++) {
-	n = S.charCodeAt(i);
-	if (isNegative) {
-	    n = 255 - n;
-	}
-	if (Num === 0) {
-	    Num = n;
-	}
-	else {
-	    Num = Num * 256 + n;
-	}
-    }
-    if (isNegative) {
-	Num = Num * (0 - 1);
-    }
-    return Num;
-};
 
 // Encode an integer into an Erlang bignum,
 // which is a byte of 1 or 0 representing
@@ -786,9 +944,12 @@ WseClass.prototype.decode_value = function(Obj) {
 		else if (typeof(elem[1]) == "string")
 		    return window.document.getElementById(elem[1]);
 	    }
-	    if ((elem.length==2) && Ei.eqAtom(elem[0].type,"function")) {
+	    if ((elem.length==2) && Ei.eqAtom(elem[0],"function")) {
 		if (typeof(elem[1]) == "number")
 		    return this.objects[elem[1]];
+		else {
+		    console.debug("object " + this.objects);
+		}
 	    }
 	    return undefined;
 	}
@@ -801,6 +962,7 @@ WseClass.prototype.decode_value = function(Obj) {
 	}
 	return undefined;
     default:
+	console.debug("unhandled object "+ Obj);
 	return Obj;
     }	
 };
@@ -926,20 +1088,20 @@ WseClass.prototype.dispatch = function (Request) {
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"newf")) {
 	    // console.debug("NEW_FUNCTION");
-	    // FIXME!
-	    var estr = "new Function("+Ei.pp(argv[1])+","+
-		argv[2]+")";
-	    // console.debug("eval : " + estr);
-	    var fn = eval(estr);
-	    value = this.encode_value(fn);	    
+	    var fn = new Function(argv[1],argv[2]);
+	    // console.debug("function = "+fn);
+	    value = this.encode_value(fn);
 	}
 	else if ((argv.length == 4) && Ei.eqAtom(argv[0],"call")) {
 	    var fn   = this.decode_value(argv[1]);
 	    var objb = this.decode_value(argv[2]);
 	    var args = this.decode_value(argv[3]);
 	    var val;
+	    var vale;
 	    val = window[fn].apply(objb, args);
-	    value = Ei.tuple(this.OkTag, this.encode_value(val));
+	    vale = this.encode_value(val);
+	    console.debug("call/3=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]));
+	    value = Ei.tuple(this.OkTag, vale);
 	}
 	else if ((argv.length == 5) && Ei.eqAtom(argv[0],"call")) {
 	    var obja = this.decode_value(argv[1]);
@@ -948,26 +1110,26 @@ WseClass.prototype.dispatch = function (Request) {
 	    var args = this.decode_value(argv[4]);
 	    var val;
 	    var vale;
-	    // console.debug("call=" + Ei.pp(argv[1]) + "," +
-		//	  Ei.pp(argv[2]) + "," +
-		//	  Ei.pp(argv[3]) + "," +
-		//	  Ei.pp(argv[4])),
 	    val  = (obja[meth]).apply(objb, args);
 	    vale = this.encode_value(val);
-//	    console.debug("vale = " + Ei.pp(vale));
+	    console.debug("call/4=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]) + "," + Ei.pp(argv[4]));
 	    value = Ei.tuple(this.OkTag, vale);
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"get")) {
 	    var obj   = this.decode_value(argv[1]);
 	    var attr  = this.decode_value(argv[2]);
-	    var val   = obj[attr];
+	    // var val   = obj[attr];
+	    var val   = obj.getAttribute(attr);
+	    console.debug(argv[1]+".get: "+attr+"="+val);
 	    value = Ei.tuple(this.OkTag, this.encode_value(val));
 	}
 	else if ((argv.length == 4) && Ei.eqAtom(argv[0],"set")) {
 	    var obj   = this.decode_value(argv[1]);
 	    var attr  = this.decode_value(argv[2]);
 	    var val   = this.decode_value(argv[3]);
-	    obj[attr] = val;
+	    console.debug(argv[1]+".set: "+attr+"="+argv[3]+"("+val+")");
+	    obj.setAttribute(attr, val);
+	    // obj[attr] = val;
 	    value = this.OkTag;
 	}
 	else if ((argv.length === 2) && Ei.eqAtom(argv[0],"delete")) {

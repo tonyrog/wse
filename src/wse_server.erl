@@ -9,6 +9,8 @@
 -compile(export_all).
 
 -define(WS_UUID, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").
+-define(WS_OP_TEXT,   1).
+-define(WS_OP_BINARY, 2).
 
 -record(event,
 	{
@@ -33,6 +35,8 @@
 -record(s,
 	{
 	  iref = 1,
+	  proto,       %% from handshake
+	  type,        %% .. text right now
 	  fs   = [],  %% fragments
 	  wait = []   %% #event
 	}).
@@ -40,8 +44,8 @@
 
 -define(log(F,W,As),
 	io:format("~s:~w: " ++ (W)++" "++(F)++"\n", [?MODULE, ?LINE | (As)])).	
-%% -define(debug(F,As), ?log(F,"debug",As)).
--define(debug(F,A), ok).
+-define(debug(F,As), ?log(F,"debug",As)).
+%% -define(debug(F,A), ok).
 -define(warn(F,As),  ?log(F,"warn", As)).
 -define(error(F,As), ?log(F,"error", As)).
 
@@ -150,7 +154,7 @@ ws_handshake(Socket, _Uri) ->
 	    gen_tcp:send(Socket, Handshake),
 	    ?debug("ws_server: sent: ~p", [Handshake]),
 	    inet:setopts(Socket, [{packet, 0},{active,once}]),
-	    ws_loop(<<>>, Socket, #s {});
+	    ws_loop(<<>>, Socket, #s {proto=WsProto, type=?WS_OP_TEXT});
 	true ->
 	    ws_error({error, missing_key})
     end.
@@ -292,8 +296,7 @@ ws_fragment(_Socket, 0, _Op, Frag, S) ->
     ?debug("collect fragment: Op=~w, Frag=~p", [_Op,Frag]),
     S#s { fs = [Frag|S#s.fs ]}.
 
--define(WS_OP_TEXT,   1).
--define(WS_OP_BINARY, 2).
+
 ws_opcode(0) -> continuation;
 ws_opcode(?WS_OP_TEXT) -> text;
 ws_opcode(?WS_OP_BINARY) -> binary;
@@ -302,15 +305,15 @@ ws_opcode(9) -> ping;
 ws_opcode(10) -> pong;
 ws_opcode(Op) -> Op.
 
-ws_make_server_frame(Payload0) ->
+ws_make_server_frame(Payload0,Type) ->
     Fin = 1,
-    ws_make_frame(Fin,?WS_OP_TEXT,<<>>, Payload0).
+    ws_make_frame(Fin,Type,<<>>, Payload0).
 
-ws_make_client_frame(Payload0) ->
+ws_make_client_frame(Payload0,Type) ->
     Fin = 1,
     M = crypto:rand_bytes(4),
     Payload = ws_mask(M, Payload0),
-    ws_make_frame(Fin,?WS_OP_TEXT, M, Payload).
+    ws_make_frame(Fin,Type,M,Payload).
 
 
 ws_make_frame(Fin, Op, Mask, Data) ->
@@ -329,21 +332,21 @@ ws_make_frame(Fin, Op, Mask, Data) ->
 handle_local({rsync,From,Request},Socket,S0) ->
     IRef = S0#s.iref,
     Bin = ws_encode({rsync,IRef,Request}),
-    gen_tcp:send(Socket, ws_make_server_frame(Bin)),
+    gen_tcp:send(Socket, ws_make_server_frame(Bin,S0#s.type)),
     Event = #event{iref=IRef,from=From},
     Wait1 = [Event|S0#s.wait],
     {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
 handle_local({nsync,From,Request},Socket,S0) ->
     IRef = S0#s.iref,
     Bin = ws_encode({nsync,IRef,Request}),
-    gen_tcp:send(Socket,  ws_make_server_frame(Bin)),
+    gen_tcp:send(Socket,  ws_make_server_frame(Bin,S0#s.type)),
     Event = #event{iref=IRef,from=From,how=none},
     Wait1 = [Event|S0#s.wait],
     {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
 handle_local({async,_From,Request},Socket,S0) ->
     IRef = S0#s.iref,
     Bin = ws_encode({async,IRef,Request}),
-    gen_tcp:send(Socket,  ws_make_server_frame(Bin)),
+    gen_tcp:send(Socket,  ws_make_server_frame(Bin,S0#s.type)),
     {noreply,S0#s { iref=next_ref(IRef) }};
 handle_local({close,From,Reason},Socket,S0) ->
     reply(#event { from=From} , ok),
@@ -402,12 +405,12 @@ handle_remote({call,IRef,M,F,As},Socket,S0) ->
     try apply(M,F,As) of
 	Value ->
 	    Bin = ws_encode({reply,IRef,{ok,Value}}),
-	    gen_tcp:send(Socket,  ws_make_server_frame(Bin)),
+	    gen_tcp:send(Socket,  ws_make_server_frame(Bin,S0#s.type)),
 	    S0
     catch
 	error:Reason ->
 	    Bin = ws_encode({reply,IRef,{error,Reason}}),
-	    gen_tcp:send(Socket,  ws_make_server_frame(Bin)),
+	    gen_tcp:send(Socket,  ws_make_server_frame(Bin,S0#s.type)),
 	    S0
     end;
 handle_remote({cast,_IRef,M,F,As},_Socket,S0) ->

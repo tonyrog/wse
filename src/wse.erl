@@ -51,6 +51,11 @@ cast(Ws, Object, Method, This, Args) when is_list(Args) ->
 new(Ws, Class, Args) when is_list(Args) ->
     rsync(Ws, {new,Class,array(Args)}).
 
+%% newf(Ws, Args::string(), Body::string()) 
+%% newf(Ws, "['e']", "'e.pageX'").
+newf(Ws, Args, Body) when is_list(Args), is_list(Body) ->
+    rsync(Ws, {newf,Args,Body}).
+
 delete(Ws, {object,ID}) ->
     rsync(Ws, {delete,ID});
 delete(_Ws, _) ->
