@@ -102,12 +102,12 @@ bert_decode(Bin) ->
 %% and the last length byte has high bit clear
 %%
 ws_encode(Term) ->
-    base64:encode(bert_encode(Term)).
-%%    bert_encode(Term).
+%%    base64:encode(bert_encode(Term)).
+    bert_encode(Term).
 
 ws_decode(Data) ->
-    bert_decode(base64:decode(Data)).
-%%    bert_decode(Data).
+%%    bert_decode(base64:decode(Data)).
+    bert_decode(Data).
 
 ws_handshake(Socket) ->
     receive
@@ -154,7 +154,7 @@ ws_handshake(Socket, _Uri) ->
 	    gen_tcp:send(Socket, Handshake),
 	    ?debug("ws_server: sent: ~p", [Handshake]),
 	    inet:setopts(Socket, [{packet, 0},{active,once}]),
-	    ws_loop(<<>>, Socket, #s {proto=WsProto, type=?WS_OP_TEXT});
+	    ws_loop(<<>>, Socket, #s {proto=WsProto, type=?WS_OP_BINARY});
 	true ->
 	    ws_error({error, missing_key})
     end.
