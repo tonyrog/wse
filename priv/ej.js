@@ -531,7 +531,7 @@ EiClass.prototype.decode_term = function (dv,pos) {
     default:
 	throw ("badtag: " + Tag);
     }
-    console.debug("decode_term = " + R);
+    // console.debug("decode_term = " + R);
     return R;
 };
 
@@ -566,18 +566,22 @@ EiClass.prototype.decode_big_bytes = function (dv,pos,len) {
 // also make sure [array|T] is encoded as [array,array|T]
 //
 EiClass.prototype.decode_list = function (dv,pos) {
-    var i, Arr = [];
+    var len, i, Arr = [];
 
-    Size = dv.getUint32(pos, false);
+    len = dv.getUint32(pos, false);
     pos += 4;
-    for (i = 0; i < Size; i++) {
+    // console.debug("decode_list len=" + len);
+    for (i = 0; i < len; i++) {
 	var Term = this.decode_term(dv,pos);
-	pos += this.decode_size_term(dv,pos);
-	if (!((i===0) && this.eqAtom(Term, "array")))
+	var k   = this.decode_size_term(dv,pos);
+	//console.debug("term (tag="+dv.getUint8(pos)+"["+ Term+ "] size = "+k);
+	pos += k;
+	if (!((i==0) && this.eqAtom(Term, "array")))
 	    Arr.push(Term);
     }
+    // console.debug("decode_list end");
     if (dv.getUint8(pos) != this.NIL) {  // improper list not allowed
-	throw ("List does not end with NIL!");
+	throw ("List does not end with NIL! [tag="+dv.getUint8(pos)+"]");
     }
     return Arr;
 };

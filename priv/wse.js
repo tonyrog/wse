@@ -7,6 +7,7 @@
 //     {rsync,IRef,Request}  -> {reply,IRef,Reply}
 //     {nsync,IRef,Request}  -> {noreply,IRef}
 //     {async,IRef,Request}  -> void
+//     {dsync,IRef,Request}  -> void  ... {reply,IRef,Reply}
 //
 // request:
 //     {new, Class, Arguments}
@@ -46,17 +47,32 @@
 //     function => {function, ID}
 //     object   => {object,ID}
 //
+(function() {
+    id_counter = 1;
+    Object.defineProperty(Object.prototype, "__uniqueId", {
+        writable: true
+    });
+    Object.defineProperty(Object.prototype, "uniqueId", {
+        get: function() {
+            if (this.__uniqueId == undefined)
+                this.__uniqueId = id_counter++;
+            return this.__uniqueId;
+        }
+    });
+}());
 
 function WseClass() {
+    this.win         = window;
     this.ws          = undefined;
     this.state       = "closed";
 
-    this.oid         = 1;
     this.objects     = new Array();
 
     this.iref        = 1;
     this.requests    = new Array();
-    this.replies     = new Array();
+    this.reply_fun   = new Array();
+    this.reply_obj   = new Array();
+    this.reply_ref   = new Array();
 
     this.OkTag       = Ei.atom("ok");
     this.ErrorTag    = Ei.atom("error");
@@ -65,6 +81,17 @@ function WseClass() {
     this.ReplyTag    = Ei.atom("reply");
     this.NoReplyTag  = Ei.atom("noreply");
 };
+
+WseClass.prototype.getWse = function(id)
+{
+    var i;
+    for (i = 0; i < this.win.frames.length; i++) {
+	if (('Wse' in this.win.frames[i]) &&
+	    (this.win.frames[i].Wse.id == id))
+	    return this.win.frames[i].Wse;
+    }
+    return null;
+}
 
 // Fixme: check binaryType for the wanted encoding ?!
 WseClass.prototype.encode = function(Obj) {
@@ -85,6 +112,7 @@ WseClass.prototype.open = function(url) {
 	this.state = "connecting";
 	this.ws = new WebSocket(url);
 	this.ws.binaryType = "arraybuffer";
+	
 
 	this.ws.onopen = function() {
             var info = Ei.tuple(Ei.atom("info"),"connected");
@@ -131,10 +159,7 @@ WseClass.prototype.encode_value = function(Obj) {
     switch(typeof(Obj)) {
     case "number": return Obj;
     case "string": return Obj;
-    case "boolean":
-	if (Obj) 
-	    return Ei.atom("true");
-	return Ei.atom("false");
+    case "boolean": return Obj ? Ei.atom("true") : Ei.atom("false");
     case "object":
 	// {object, window}    - the current window object
 	// {object, document}  - the current document object
@@ -142,23 +167,21 @@ WseClass.prototype.encode_value = function(Obj) {
 	// {object, num}       - Stored in objects array
 	if (Obj == window.self)
 	    return Ei.tuple(this.ObjectTag,Ei.atom("window"));
-	if (Obj == window.document) 
+	else if (Obj == window.document) 
 	    return Ei.tuple(this.ObjectTag,Ei.atom("document"));
-	if (('id' in Obj) && Obj.id) {
+	else if (Obj == screen)
+	    return Ei.tuple(this.ObjectTag,Ei.atom("screen"));
+	else if (Obj == navigator)
+	    return Ei.tuple(this.ObjectTag,Ei.atom("navigator"));
+	else if (('id' in Obj) && Obj.id) {
 	    if (Obj == document.getElementById(Obj.id))
 		return Ei.tuple(this.ObjectTag,Obj.id);
 	}
-	if (!('wsekey' in Obj)) {
-	    Obj.wsekey = this.oid++;
-	    this.objects[Obj.wsekey] = Obj;
-	}
-	return Ei.tuple(this.ObjectTag,Obj.wsekey);
+	this.objects[Obj.uniqueId] = Obj;
+	return Ei.tuple(this.ObjectTag,Obj.uniqueId);
     case "function":
-	if (!('wsekey' in Obj)) {
-	    Obj.wsekey = this.oid++;
-	    this.objects[Obj.wsekey] = Obj;
-	}
-	return Ei.tuple(this.FunctionTag,Obj.wsekey);
+	this.objects[Obj.uniqueId] = Obj;
+	return Ei.tuple(this.FunctionTag,Obj.uniqueId);
     case "undefined":
 	return Ei.atom("undefined");
     }
@@ -166,8 +189,10 @@ WseClass.prototype.encode_value = function(Obj) {
 
 //
 // Decode BERT rpc values into javascript objects
-// {object, window} => window.self
-// {object, document} => window.document
+// {object, window}   =>  window.self
+// {object, document} =>  window.document
+// {object, screen}   =>  screen
+// {object, navigator} => navigator
 // {object, id}       => window.document.getElelementById(id)
 // {object, num}      => objects[num]
 // {function,num}     => objects[num]
@@ -188,6 +213,10 @@ WseClass.prototype.decode_value = function(Obj) {
 		    return window.self;
 		else if (Ei.eqAtom(elem[1],"document"))
 		    return window.document;
+		else if (Ei.eqAtom(elem[1], "screen"))
+		    return screen;
+		else if (Ei.eqAtom(elem[1], "navigator"))
+		    return navigator;
 		else if (typeof(elem[1]) == "number")
 		    return this.objects[elem[1]];
 		else if (typeof(elem[1]) == "string")
@@ -213,7 +242,7 @@ WseClass.prototype.decode_value = function(Obj) {
     default:
 	console.debug("unhandled object "+ Obj);
 	return Obj;
-    }	
+    }
 };
 //
 // Decode ehtml to DOM 
@@ -280,27 +309,38 @@ WseClass.prototype.decode_ehtml = function (Obj) {
 // Dispatch remote operations
 //
 WseClass.prototype.dispatch = function (Request) {
-    var iref;
-    var value;
-    var r;
-    var t;
+    var iref, aref;
+    var value, rvalue;
+    var r, t;
+    var is_dsync = false;
 
     if (Ei.isTupleSize(Request, 3)) {
 	var argv = Request.value;
+	aref = argv[1];
 	if (Ei.eqAtom(argv[0],      "rsync"))
-	    iref = argv[1];
+	    iref = aref;
 	else if (Ei.eqAtom(argv[0], "nsync"))
-	    iref = -argv[1];
+	    iref = -aref;
 	else if (Ei.eqAtom(argv[0], "async"))
 	    iref = 0;
+	else if (Ei.eqAtom(argv[0], "dsync")) {
+	    is_dsync = true;
+	    iref = 0;
+	}
 	else if (Ei.eqAtom(argv[0], "reply")) {
-	    var fn;
-	    iref = argv[1];
+	    var fn,obj,ref;
+	    iref = aref;
 	    value = argv[2];
-	    fn = this.replies[iref];
+	    fn = this.reply_fun[iref];
+	    obj = this.reply_obj[iref];
+	    ref = this.reply_ref[iref];
+	    console.debug("got reply "+iref+","+value+" fn="+fn+" obj="+obj+" ref="+ref);
 	    if (fn != undefined) {
-		delete this.replies[iref];
-		fn(value);
+		// delete?
+		this.reply_fun[iref] = null;
+		this.reply_obj[iref] = null;
+		this.reply_ref[iref] = null;
+		fn(obj,ref,value);
 	    }
 	    return undefined;
 	}
@@ -333,24 +373,30 @@ WseClass.prototype.dispatch = function (Request) {
 	    var fn  = window[this.decode_value(argv[1])];
 	    fn.apply(obj, this.decode_value(argv[2]));
 	    obj.__proto__ = fn.prototype;
-	    value = this.encode_value(obj);
+	    rvalue = this.encode_value(obj);
+	    value = rvalue;
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"newf")) {
-	    // console.debug("NEW_FUNCTION");
+	    console.debug("new Function("+argv[1]+","+argv[2]+")");
 	    var fn = new Function(argv[1],argv[2]);
-	    // console.debug("function = "+fn);
-	    value = this.encode_value(fn);
+	    console.debug("function = "+fn);
+	    rvalue = this.encode_value(fn);
+	    value = rvalue;
 	}
 	else if ((argv.length == 4) && Ei.eqAtom(argv[0],"call")) {
 	    var fn   = this.decode_value(argv[1]);
 	    var objb = this.decode_value(argv[2]);
 	    var args = this.decode_value(argv[3]);
 	    var val;
-	    var vale;
 	    val = window[fn].apply(objb, args);
-	    vale = this.encode_value(val);
+	    rvalue = this.encode_value(val);
 	    console.debug("call/3=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]));
-	    value = Ei.tuple(this.OkTag, vale);
+	    if (is_dsync && (fn === "call") && (val % 1 === 0)) {
+		console.debug("set reply_obj["+val+"] = "+objb);
+		objb.reply_obj[val] = this; // patch object
+		objb.reply_ref[val] = aref; // original ref
+	    }
+	    value = Ei.tuple(this.OkTag, rvalue);
 	}
 	else if ((argv.length == 5) && Ei.eqAtom(argv[0],"call")) {
 	    var obja = this.decode_value(argv[1]);
@@ -358,34 +404,37 @@ WseClass.prototype.dispatch = function (Request) {
 	    var objb = this.decode_value(argv[3]);
 	    var args = this.decode_value(argv[4]);
 	    var val;
-	    var vale;
 	    val  = (obja[meth]).apply(objb, args);
-	    vale = this.encode_value(val);
+	    rvalue = this.encode_value(val);
 	    console.debug("call/4=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]) + "," + Ei.pp(argv[4]));
-	    value = Ei.tuple(this.OkTag, vale);
+	    if (is_dsync && (meth === "call") && (val % 1 === 0)) {
+		console.debug("set obja.reply_obj["+val+"] = "+this);
+		obja.reply_obj[val] = this; // patch object
+		obja.reply_ref[val] = aref; // original ref
+	    }
+	    value = Ei.tuple(this.OkTag, rvalue);
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"get")) {
 	    var obj   = this.decode_value(argv[1]);
 	    var attr  = this.decode_value(argv[2]);
-	    // var val   = obj[attr];
-	    var val   = obj.getAttribute(attr);
-	    console.debug(argv[1]+".get: "+attr+"="+val);
-	    value = Ei.tuple(this.OkTag, this.encode_value(val));
+	    rvalue = obj[attr];
+	    // var val   = obj.getAttribute(attr);
+	    console.debug(argv[1]+".get: "+attr+"="+rvalue);
+	    value = Ei.tuple(this.OkTag, this.encode_value(rvalue));
 	}
 	else if ((argv.length == 4) && Ei.eqAtom(argv[0],"set")) {
 	    var obj   = this.decode_value(argv[1]);
 	    var attr  = this.decode_value(argv[2]);
-	    var val   = this.decode_value(argv[3]);
-	    console.debug(argv[1]+".set: "+attr+"="+argv[3]+"("+val+")");
-	    obj.setAttribute(attr, val);
-	    // obj[attr] = val;
+	    rvalue = this.decode_value(argv[3]);
+	    console.debug(argv[1]+".set: "+attr+"="+argv[3]+"("+rvalue+")");
+	    // obj.setAttribute(attr, rvalue);
+	    obj[attr] = rvalue;
 	    value = this.OkTag;
 	}
 	else if ((argv.length === 2) && Ei.eqAtom(argv[0],"delete")) {
-	    if (this.objects[argv[1]] != 'undefined') {
-		delete this.objects[argv[1]];
-		value = this.OkTag;
-	    }
+	    this.objects[argv[1]] = null;
+	    rvalue = null;
+	    value = this.OkTag;
 	}
     }
     if (iref == 0) {
@@ -429,12 +478,28 @@ WseClass.prototype.call = function (mod,fun,args,onreply) {
 	Ei.atom(mod),Ei.atom(fun),args);
     if (this.state == "open") {
 	this.ws.send(this.encode(cmd));
-	this.replies[ref] = onreply;
-	return true;
+	console.debug("set reply_fun["+ref+"] = "+onreply);
+	this.reply_fun[ref] = onreply;
+	this.reply_obj[ref] = this;
+	this.reply_ref[ref] = ref;
+	return ref;
     }
     else {
 	this.requests[ref] = cmd;
-	this.replies[ref]  = onreply;
+	console.debug("set reply_fun["+ref+"] = "+onreply);
+	this.reply_fun[ref]  = onreply;
+	this.reply_obj[ref] = this;
+	this.reply_ref[ref] = ref;
+	return ref;
+    }
+};
+
+// Used for handle return relay
+WseClass.prototype.reply = function (iref,value) {
+    var reply = Ei.tuple(this.ReplyTag,iref,value);
+    console.debug("sending reply "+reply+"id="+this.id);
+    if (this.state == "open") {
+	this.ws.send(this.encode(reply));
 	return true;
     }
     return false;

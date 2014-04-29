@@ -11,11 +11,10 @@ id(ID) when is_atom(ID) ->
 id(ID) when is_list(ID) ->
     {object, ID}.
 
-document() ->
-    id(document).
-
-window() ->
-    id(window).
+document()  -> id(document).
+window()    -> id(window).
+screen()    -> id(screen).
+navigator() -> id(navigator).
 
 %% force list to be encoded as a list when using term_to_binary!!!
 %% this is handled in the BERT decoder
@@ -25,14 +24,18 @@ array(Elements) when is_list(Elements) ->
 send(Ws, Tag, Data) ->
     nsync(Ws, {send,Tag,Data}).
 
-fcall(Ws, Function, This, Args) ->
-    rsync(Ws, {fcall,Function,This,array(Args)}).
-
 call(Ws, Object, Method, Args) ->
     call(Ws, Object, Method, Object, Args).
 
 call(Ws, Object, Method, This, Args) when is_list(Args) ->
     rsync(Ws, {call, Object, Method, This, array(Args)}).
+
+rcall(Ws, Object, Method, Args) ->
+    rcall(Ws, Object, Method, Object, Args).
+
+rcall(Ws, Object, Method, This, Args) when is_list(Args) ->
+    dsync(Ws, {call, Object, Method, This, array(Args)}).
+
 
 %% get attribute or value at index
 get(Ws, Object, Attribute) ->
@@ -52,7 +55,7 @@ new(Ws, Class, Args) when is_list(Args) ->
     rsync(Ws, {new,Class,array(Args)}).
 
 %% newf(Ws, Args::string(), Body::string()) 
-%% newf(Ws, "['e']", "'e.pageX'").
+%% newf(Ws, "e,f", "'e.pageX'").
 newf(Ws, Args, Body) when is_list(Args), is_list(Body) ->
     rsync(Ws, {newf,Args,Body}).
 
@@ -65,7 +68,7 @@ close(Ws) ->
     close(Ws, normal).
 
 close(Ws,Reason) ->
-    Ref = make_ref(),    
+    Ref = make_ref(),
     Ws ! {close,[Ref|self()],Reason},
     receive
 	{reply, Ref, Reply} ->
@@ -148,6 +151,14 @@ load(Ws, Library) ->
 rsync(Ws, Command) ->
     Ref = make_ref(),
     Ws ! {rsync,[Ref|self()],Command},
+    receive
+	{reply, Ref, Reply} ->
+	    Reply
+    end.
+
+dsync(Ws, Command) ->
+    Ref = make_ref(),
+    Ws ! {dsync,[Ref|self()],Command},
     receive
 	{reply, Ref, Reply} ->
 	    Reply

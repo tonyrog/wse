@@ -6,11 +6,18 @@
 %%% Created :  9 Feb 2014 by Tony Rogvall <tony@rogvall.se>
 
 -module(wse_server).
+
+-export([start/0, start/1, start/2]).
+-export([ws_loop/3]).
+
 -compile(export_all).
 
 -define(WS_UUID, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").
 -define(WS_OP_TEXT,   1).
 -define(WS_OP_BINARY, 2).
+-define(WS_OP_CLOSE,  8).
+-define(WS_OP_PING,   9).
+-define(WS_OP_PONG,   10).
 
 -record(event,
 	{
@@ -35,17 +42,24 @@
 -record(s,
 	{
 	  iref = 1,
-	  proto,       %% from handshake
-	  type,        %% .. text right now
-	  fs   = [],  %% fragments
-	  wait = []   %% #event
+	  closing=false,        %% false|client|server
+	  pingInterval = 10000, %% ping every T ms
+	  pongTimeout  = 5000,  %% wait max T ns for pong
+	  ping_ref,             %% current ping reference
+	  pong_tmr,             %% current pong timeout reference
+	  ping_data,            %% current ping data
+	  proto,                %% from handshake "bert"?
+	  type,                 %% ?WS_OP_TEXT|?WS_OP_BINARY
+	  fs   = [],            %% fragments
+	  wait = []             %% #event
 	}).
 
 
 -define(log(F,W,As),
 	io:format("~s:~w: " ++ (W)++" "++(F)++"\n", [?MODULE, ?LINE | (As)])).	
--define(debug(F,As), ?log(F,"debug",As)).
-%% -define(debug(F,A), ok).
+%% -define(debug(F,As), ?log(F,"debug",As)).
+-define(debug(F,A), ok).
+-define(info(F,As),  ?log(F,"info", As)).
 -define(warn(F,As),  ?log(F,"warn", As)).
 -define(error(F,As), ?log(F,"error", As)).
 
@@ -53,36 +67,44 @@
 %%  This should be in another module for clarity
 %%  but is included here to make the example self-contained
 
-start() ->
-    start(1234).
+start() -> start_([]).
 
-start(Port) ->
-    spawn(fun() -> init(Port) end).
+start(Port) when is_integer(Port) -> 
+    start_([{port,Port}]);
+start([AtomPort]) when is_atom(AtomPort) ->
+    start(list_to_integer(atom_to_list(AtomPort))).
 
-init(Port) ->
-    {ok, Listen} = gen_tcp:listen(Port, 
+start(Port,Opts) when is_integer(Port) -> start_([{port,Port}|Opts]).
+
+start_(Opts) -> spawn(fun() -> init(Opts) end).
+
+init(Opts) ->
+    Port = proplists:get_value(port, Opts, 1234),
+    Addr = proplists:get_value(ifaddr, Opts, any),
+    {ok, Listen} = gen_tcp:listen(Port,
 				  [{packet,http},{reuseaddr,true},
+				   {ifaddr, Addr},
 				   {mode, binary}, {active, once}]),
-    listen_loop(Listen).
+    listen_loop(Listen,Opts).
 
-listen_loop(Listen) ->
+listen_loop(Listen,Opts) ->
     Parent = self(),
-    {Pid,Mon} = spawn_monitor(fun() -> accept(Parent, Listen) end),
+    {Pid,Mon} = spawn_monitor(fun() -> accept(Parent, Listen, Opts) end),
     receive
 	{Pid,ok} ->
 	    erlang:demonitor(Mon, [flush]),
-	    ?MODULE:listen_loop(Listen);
+	    ?MODULE:listen_loop(Listen,Opts);
 	{'DOWN',Mon,process,Pid,Reason} ->
-	    io:format("process crashed: ~p\n", [Reason]),
-	    listen_loop(Listen)
+	    ?warn("process crashed: ~p\n", [Reason]),
+	    ?MODULE:listen_loop(Listen,Opts)
     end.
     
-accept(Parent, Listen) ->
+accept(Parent, Listen, Opts) ->
     case gen_tcp:accept(Listen) of
 	{ok, Socket} ->
-	    io:format("Connected to ~p\n", [inet:peername(Socket)]),
+	    ?debug("Connected to ~p\n", [inet:peername(Socket)]),
 	    Parent ! {self(), ok},
-	    ?MODULE:ws_handshake(Socket);
+	    ?MODULE:ws_handshake(Socket,Opts);
 	Error ->
 	    Parent ! {self(), Error}
     end.
@@ -96,24 +118,24 @@ bert_decode(Bin) ->
     binary_to_term(Bin).
 
 %%
-%% Stupid WebSocket (where is the length mode?)
-%% The spec says that you can send length indicator 
-%% 0x80+L1,0x80+L2,..Ln where Li is 7 bit data from length
-%% and the last length byte has high bit clear
-%%
-ws_encode(Term) ->
-%%    base64:encode(bert_encode(Term)).
-    bert_encode(Term).
+ws_encode(Term,?WS_OP_BINARY) ->
+    bert_encode(Term);
+ws_encode(Term,?WS_OP_TEXT) ->
+    base64:encode(bert_encode(Term)).
 
-ws_decode(Data) ->
-%%    bert_decode(base64:decode(Data)).
-    bert_decode(Data).
+ws_decode(Data,?WS_OP_BINARY) -> {mesg,bert_decode(Data)};
+ws_decode(Data,?WS_OP_TEXT) ->   {mesg,bert_decode(base64:decode(Data))};
+ws_decode(Data, ?WS_OP_PING) ->  {ping, Data};
+ws_decode(Data, ?WS_OP_PONG) ->  {pong,Data};
+ws_decode(Data, ?WS_OP_CLOSE) -> {close,Data}.
 
-ws_handshake(Socket) ->
+
+
+ws_handshake(Socket,Opts) ->
     receive
 	{http, Socket, _Req={http_request,'GET',Uri,_Version}} ->
 	    ?debug("got ws request ~p", [_Req]),
-	    ws_handshake(Socket, Uri);
+	    ws_handshake(Socket, Uri, Opts);
 	{http, _Socket, Req={http_request, _, _, _}} ->
 	    ?warn("reject ws request ~p", [Req]),
 	    %% send error reply!
@@ -123,7 +145,7 @@ ws_handshake(Socket) ->
 	    ws_error({error, no_data})
     end.
 
-ws_handshake(Socket, _Uri) ->
+ws_handshake(Socket, _Uri, Opts) ->
     inet:setopts(Socket, [{active, once}]),
     case ws_recv_headers(Socket, #ws_header{}, 1000) of
 	Err ={error,_} ->
@@ -136,7 +158,7 @@ ws_handshake(Socket, _Uri) ->
 	    Accept2 = crypto:hash(sha, Accept1),
 	    Accept  = base64:encode(Accept2),
 	    WsAccept = ["Sec-Websocket-Accept:",Accept,"\r\n"],
-	    %% ?debug("Accept = ~w", [Accept]),
+	    ?debug("Accept = ~w", [Accept]),
 	    WsProto = if is_list(F#ws_header.protocol) ->
 			      ["Sec-Websocket-Protocol:",
 			       hd(string:tokens(F#ws_header.protocol, ",")),
@@ -154,7 +176,19 @@ ws_handshake(Socket, _Uri) ->
 	    gen_tcp:send(Socket, Handshake),
 	    ?debug("ws_server: sent: ~p", [Handshake]),
 	    inet:setopts(Socket, [{packet, 0},{active,once}]),
-	    ws_loop(<<>>, Socket, #s {proto=WsProto, type=?WS_OP_BINARY});
+	    PingInterval = proplists:get_value(pingInterval,Opts,10000),
+	    PongTimeout = proplists:get_value(pongTimeout,Opts,5000),
+	    Type = case proplists:get_value(type,Opts,binary) of
+		       binary -> ?WS_OP_BINARY;
+		       text -> ?WS_OP_TEXT
+		   end,
+	    S0 = #s {proto=WsProto,
+		     type=Type,
+		     pingInterval=PingInterval,
+		     pongTimeout=PongTimeout
+		    },
+	    S1 = start_ping_timer(S0),
+	    ws_loop(<<>>, Socket, S1);
 	true ->
 	    ws_error({error, missing_key})
     end.
@@ -217,7 +251,7 @@ ws_loop(Buf, Socket, S) ->
     receive
 	%% WebSocket stuff
 	{tcp, Socket, Data} ->
-	    ?debug("tcp ~w: ~p", [Socket, Data]),
+	    %% ?debug("tcp ~w: ~p", [Socket, Data]),
 	    ws_data(Buf, Data, Socket, S);
 
 	{tcp_closed, Socket} ->
@@ -242,17 +276,17 @@ ws_data(Buf, Data, Socket, S) ->
     case <<Buf/binary, Data/binary>> of
 	%% masked data
 	<<Fin:1,_Rsv:3,Op:4,1:1,126:7,L:16,M:4/binary,Frag:L/binary,Buf1/binary>> ->
-	    ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
+	    %% ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
 	    Frag1 = ws_mask(M, Frag),
 	    S1 = ws_fragment(Socket, Fin, Op, Frag1, S),
 	    ws_data(Buf1, <<>>, Socket, S1);
 	<<Fin:1,_Rsv:3,Op:4,1:1,127:7,L:64,M:4/binary,Frag:L/binary,Buf1/binary>> ->
-	     ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
+	    %% ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
 	    Frag1 = ws_mask(M, Frag),
 	    S1 = ws_fragment(Socket,Fin, Op, Frag1, S),
 	    ws_data(Buf1, <<>>, Socket, S1);
 	<<Fin:1,_Rsv:3,Op:4,1:1,L:7,M:4/binary,Frag:L/binary,Buf1/binary>> ->
-	    ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
+	    %% ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
 	    Frag1 = ws_mask(M, Frag),
 	    S1 = ws_fragment(Socket,Fin, Op, Frag1, S),
 	    ws_data(Buf1, <<>>, Socket, S1);
@@ -268,41 +302,40 @@ ws_data(Buf, Data, Socket, S) ->
 	    ws_data(Buf1, <<>>, Socket, S1);
 	Buf1 -> %% handle to large messages and mal formed
 	    inet:setopts(Socket, [{active, once}]),
-	    ws_loop(Buf1, Socket, S)
+	    ?MODULE:ws_loop(Buf1, Socket, S)
     end.
 
-ws_mask(<<M0,M1,M2,M3>>, Frag) ->
-    ws_mask(Frag,M0,M1,M2,M3).
-    
-ws_mask(<<X0,X1,X2,X3,Xs/binary>>, M0, M1, M2, M3) ->
-    <<(X0 bxor M0), (X1 bxor M1), (X2 bxor M2), (X3 bxor M3),
-      (ws_mask(Xs, M0, M1, M2, M3))/binary>>;
-ws_mask(<<X0,X1,X2>>, M0, M1, M2, _M3) ->
-    <<(X0 bxor M0), (X1 bxor M1), (X2 bxor M2)>>;
-ws_mask(<<X0,X1>>, M0, M1, _M2, _M3) ->
-    <<(X0 bxor M0), (X1 bxor M1)>>;
-ws_mask(<<X0>>, M0, _M1, _M2, _M3) ->
-    <<(X0 bxor M0)>>;
-ws_mask(<<>>, _M0, _M1, _M2, _M3) ->
-    <<>>.
+ws_mask(<<M:32>>, Frag) ->
+    Frag1 = << <<(X bxor M):32>> || <<X:32>> <= Frag >>,
+    Sz = byte_size(Frag),
+    case Sz band 3 of
+	0 -> Frag1;
+	SzA ->
+	    Sz0 = Sz-SzA,
+	    SzB = 4-SzA,
+	    <<_:Sz0/unit:8, Xa:SzA/unit:8>> = Frag,
+	    <<X:32>> = <<Xa:SzA/unit:8,0:SzB/unit:8>>,
+	    <<Yi:SzA/unit:8,_:SzB/unit:8>> = <<(X bxor M):32>>,
+	    <<Frag1/binary,Yi:SzA/unit:8>>
+    end.
 
-ws_fragment(Socket,1, _Op, Frag, S) ->
+ws_fragment(Socket,1, Op, Frag, S) ->
     Payload = iolist_to_binary(lists:reverse([Frag|S#s.fs])),
-    ?debug("op=~w, unmasked payload = ~p", [ws_opcode(_Op),Payload]),
-    Message = ws_decode(Payload),
+    %% ?debug("op=~w, unmasked payload = ~p", [ws_opcode(Op),Payload]),
+    Message = ws_decode(Payload,Op),
     ?debug("handle_remote: ~p", [Message]),
     handle_remote(Message, Socket, S#s { fs=[] });
 ws_fragment(_Socket, 0, _Op, Frag, S) ->
-    ?debug("collect fragment: Op=~w, Frag=~p", [_Op,Frag]),
+    %% ?debug("collect fragment: Op=~w, Frag=~p", [_Op,Frag]),
     S#s { fs = [Frag|S#s.fs ]}.
 
 
 ws_opcode(0) -> continuation;
 ws_opcode(?WS_OP_TEXT) -> text;
 ws_opcode(?WS_OP_BINARY) -> binary;
-ws_opcode(8) -> close;
-ws_opcode(9) -> ping;
-ws_opcode(10) -> pong;
+ws_opcode(?WS_OP_CLOSE) -> close;
+ws_opcode(?WS_OP_PING) -> ping;
+ws_opcode(?WS_OP_PONG) -> pong;
 ws_opcode(Op) -> Op.
 
 ws_make_server_frame(Payload0,Type) ->
@@ -319,7 +352,7 @@ ws_make_client_frame(Payload0,Type) ->
 ws_make_frame(Fin, Op, Mask, Data) ->
     L = byte_size(Data),
     M = if Mask =:= <<>> -> 0; true -> 1 end,
-    ?debug("payload size = ~w, mask=~w\n", [L,M]),
+    %% ?debug("payload size = ~w, mask=~w\n", [L,M]),
     if L < 126 ->
 	    <<Fin:1,0:3,Op:4,M:1,L:7,Mask/binary,Data/binary>>;
        L < 65536 ->
@@ -331,58 +364,112 @@ ws_make_frame(Fin, Op, Mask, Data) ->
     
 handle_local({rsync,From,Request},Socket,S0) ->
     IRef = S0#s.iref,
-    Bin = ws_encode({rsync,IRef,Request}),
-    gen_tcp:send(Socket, ws_make_server_frame(Bin,S0#s.type)),
+    Data = ws_encode({rsync,IRef,Request},S0#s.type),
+    gen_tcp:send(Socket, ws_make_server_frame(Data,S0#s.type)),
     Event = #event{iref=IRef,from=From},
     Wait1 = [Event|S0#s.wait],
     {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
 handle_local({nsync,From,Request},Socket,S0) ->
     IRef = S0#s.iref,
-    Bin = ws_encode({nsync,IRef,Request}),
-    gen_tcp:send(Socket,  ws_make_server_frame(Bin,S0#s.type)),
+    Data = ws_encode({nsync,IRef,Request},S0#s.type),
+    gen_tcp:send(Socket,  ws_make_server_frame(Data,S0#s.type)),
     Event = #event{iref=IRef,from=From,how=none},
     Wait1 = [Event|S0#s.wait],
     {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
 handle_local({async,_From,Request},Socket,S0) ->
     IRef = S0#s.iref,
-    Bin = ws_encode({async,IRef,Request}),
-    gen_tcp:send(Socket,  ws_make_server_frame(Bin,S0#s.type)),
+    Data = ws_encode({async,IRef,Request},S0#s.type),
+    gen_tcp:send(Socket,  ws_make_server_frame(Data,S0#s.type)),
     {noreply,S0#s { iref=next_ref(IRef) }};
+handle_local({dsync,From,Request},Socket,S0) ->
+    IRef = S0#s.iref,
+    Data = ws_encode({dsync,IRef,Request},S0#s.type),
+    gen_tcp:send(Socket, ws_make_server_frame(Data,S0#s.type)),
+    Event = #event{iref=IRef,from=From},
+    Wait1 = [Event|S0#s.wait],
+    {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
 handle_local({close,From,Reason},Socket,S0) ->
     reply(#event { from=From} , ok),
     lists:foreach(fun(E) -> reply(E, {error, closed}) end, S0#s.wait),
-    gen_tcp:close(Socket),
-    {stop,Reason};
+    CloseData = if is_atom(Reason) -> atom_to_binary(Reason, latin1);
+		   true -> <<"unknown">>
+		end,
+    gen_tcp:send(Socket, ws_make_server_frame(CloseData,?WS_OP_CLOSE)),
+    {noreply,S0#s { closing=server }};
+
 handle_local({create_event,From,How,Data},_Socket,S0) ->
     IRef = S0#s.iref,
     Event = #event { iref=IRef, from=From, how=How, data=Data},
     Wait1 = [Event|S0#s.wait],    
     reply(Event, {ok, IRef}),
     {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
+
+handle_local({timeout,Ref,ping},Socket,S0) when S0#s.ping_ref =:= Ref ->
+    %% ping the browser!
+    PingData = crypto:rand_bytes(4),
+    %% ?debug("sending ping ~p\n", [PingData]),
+    Frame = ws_make_server_frame(<<PingData/binary>>,?WS_OP_PING),
+    gen_tcp:send(Socket, Frame),
+    S1 = start_pong_timer(S0#s { ping_data=PingData, ping_ref=undefined }),
+    {noreply, S1};
+
+handle_local({timeout,Ref,pong},_Socket,S0) when S0#s.pong_tmr =:= Ref ->
+    ?debug("timeout waiting for pong ~p, stopping\n", [S0#s.ping_data]),
+    {stop, not_responding};
+
 handle_local(Other,_Socket,S0) ->
-    io:format("handle_local: got ~p~n",[Other]),
+    ?warn("handle_local: got ~p~n",[Other]),
     {noreply,S0}.
 
 %%
 %% Handle remote operations and replies
 %%
-handle_remote({reply,IRef,Reply}, _Socket, S0) ->
+handle_remote({ping,Data}, Socket, S0) ->
+    %% ?debug("got ping ~p, sending pong ~p", [Data]),
+    gen_tcp:send(Socket, ws_make_server_frame(Data,?WS_OP_PONG)),
+    S0;
+handle_remote({pong,Data}, _Socket, S0) ->
+    if Data =:= S0#s.ping_data ->
+	    %% ?debug("got pong reply: ~p", [Data]),
+	    S1 = stop_pong_timer(S0),
+	    start_ping_timer(S1);
+       true ->
+	    ?debug("got heartbeat pong: ~p", [Data]),
+	    S0
+    end;
+handle_remote({close,Data}, Socket, S0) ->
+    if S0#s.closing =:= server ->
+	    ?debug("got close ~p, both sides closed", [Data]),
+	    gen_tcp:close(Socket),
+	    exit(Data);
+       S0#s.closing =:= false ->
+	    ?debug("got close ~p, client closing", [Data]),
+	    gen_tcp:send(Socket, ws_make_server_frame(Data,?WS_OP_CLOSE)),
+	    S0#s { closing = client }
+    end;
+handle_remote({mesg, Mesg}, Socket, S0) ->
+    handle_mesg(Mesg, Socket, S0).
+
+
+handle_mesg({reply,IRef,Reply}, _Socket, S0) ->
     case lists:keytake(IRef, #event.iref, S0#s.wait) of
 	false ->
+	    io:format("got reply ~w = ~w (ignored)\n", [IRef,Reply]),
 	    S0;
 	{value,Event,Wait1} ->
+	    io:format("got reply ~w = ~w (~w)\n", [IRef,Reply,Event]),
 	    reply(Event, Reply),
 	    S0#s { wait=Wait1}
     end;
-handle_remote({noreply,IRef},_Socket,S0) ->
+handle_mesg({noreply,IRef},_Socket,S0) ->
     case lists:keytake(IRef, #event.iref, S0#s.wait) of
 	false ->
 	    S0;
 	{value,_Event,Wait1} ->
 	    S0#s { wait=Wait1}
     end;
-handle_remote({notify,IRef,RemoteData},_Socket,S0) ->
-    io:format("NOTIFY: ~w ~p\n", [IRef,RemoteData]),
+handle_mesg({notify,IRef,RemoteData},_Socket,S0) ->
+    ?info("notify: ~w ~p\n", [IRef,RemoteData]),
     case lists:keytake(IRef,#event.iref, S0#s.wait) of
 	false ->
 	    S0;
@@ -395,27 +482,58 @@ handle_remote({notify,IRef,RemoteData},_Socket,S0) ->
 		    S0#s { wait=Wait1}
 	    end
     end;
-handle_remote({info,Data},_Socket,S0) ->
-    io:format("INFO: ~p\n", [Data]),
+handle_mesg({info,_Data},_Socket,S0) ->
+    ?debug("info: ~p\n", [_Data]),
     S0;
-handle_remote({start,M,F,As},_Socket,S0) ->
+handle_mesg({start,M,F,As},_Socket,S0) ->
     spawn(M,F,[self()|As]),
     S0;
-handle_remote({call,IRef,M,F,As},Socket,S0) ->
+handle_mesg({call,IRef,M,F,As},Socket,S0) ->
     try apply(M,F,As) of
 	Value ->
-	    Bin = ws_encode({reply,IRef,{ok,Value}}),
-	    gen_tcp:send(Socket,  ws_make_server_frame(Bin,S0#s.type)),
+	    Data = ws_encode({reply,IRef,{ok,Value}},S0#s.type),
+	    gen_tcp:send(Socket,  ws_make_server_frame(Data,S0#s.type)),
 	    S0
     catch
 	error:Reason ->
-	    Bin = ws_encode({reply,IRef,{error,Reason}}),
-	    gen_tcp:send(Socket,  ws_make_server_frame(Bin,S0#s.type)),
+	    Data = ws_encode({reply,IRef,{error,Reason}},S0#s.type),
+	    gen_tcp:send(Socket,  ws_make_server_frame(Data,S0#s.type)),
 	    S0
     end;
-handle_remote({cast,_IRef,M,F,As},_Socket,S0) ->
+handle_mesg({cast,_IRef,M,F,As},_Socket,S0) ->
     catch (apply(M,F,As)),
     S0;
-handle_remote(Other, _Socket, S0) ->
-    io:format("handle_remote: got ~p\n", [Other]),
+handle_mesg(_Other, _Socket, S0) ->
+    ?debug("unknown mesg ~p\n", [_Other]),
     S0.
+
+start_ping_timer(S0) ->
+    if is_integer(S0#s.pingInterval),S0#s.pingInterval>0 ->
+	    Ref = erlang:start_timer(S0#s.pingInterval, self(), ping),
+	    S0#s { ping_ref = Ref, ping_data = undefined };
+       true ->
+	    S0
+    end.
+
+start_pong_timer(S0) ->
+    if is_integer(S0#s.pongTimeout),S0#s.pongTimeout>0 ->
+	    Ref = erlang:start_timer(S0#s.pongTimeout, self(), pong),
+	    S0#s { pong_tmr = Ref };
+       true ->
+	    S0
+    end.
+
+stop_pong_timer(S0) ->
+    Tmr = S0#s.pong_tmr,
+    if is_reference(Tmr) ->
+	    erlang:cancel_timer(Tmr),
+	    receive
+		{timeout,Tmr,pong} -> 
+		    ok
+	    after 0 ->
+		    ok
+	    end,
+	    S0#s { pong_tmr = undefined };
+       true ->
+	    S0
+    end.

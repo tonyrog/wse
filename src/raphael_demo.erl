@@ -13,7 +13,7 @@
 %% Small demo
 %%
 run(Ws, Where) ->
-    io:format("raphael: demo called\n"),
+    io:format("raphael_demo: called\n"),
     ok = wse:load(Ws, "raphael-min.js"),
     {ok,Paper} = raphael:new(Ws, Where, 640, 480),
 

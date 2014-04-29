@@ -1,13 +1,13 @@
 <html>
 <head>
-<title>Pure WSE page</title>
+<title>Document demo page</title>
 <script src='ej.js'></script>
 <script src='wse.js'></script>
 <script>
 
 window.onload = function() {
    if (Wse.open("ws://"+location.hostname+":1234/websession")) {
-      Wse.start('raphael_demo', 'run', ["i1"]);
+      Wse.start('document_demo', 'run', ["i1"]);
    }
    else
      alert("WebSockets not supported");
