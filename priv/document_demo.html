@@ -6,7 +6,7 @@
 <script>
 
 window.onload = function() {
-   if (Wse.open("ws://"+location.hostname+":1234/websession")) {
+   if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession")) {
       Wse.start('document_demo', 'run', ["i1"]);
    }
    else

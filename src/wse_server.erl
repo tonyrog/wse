@@ -19,6 +19,8 @@
 -define(WS_OP_PING,   9).
 -define(WS_OP_PONG,   10).
 
+-define(WSE_DEFAULT_PORT, 1234).
+
 -record(event,
 	{
 	  iref,      %% global integer reference
@@ -79,7 +81,7 @@ start(Port,Opts) when is_integer(Port) -> start_([{port,Port}|Opts]).
 start_(Opts) -> spawn(fun() -> init(Opts) end).
 
 init(Opts) ->
-    Port = proplists:get_value(port, Opts, 1234),
+    Port = proplists:get_value(port, Opts, ?WSE_DEFAULT_PORT),
     Addr = proplists:get_value(ifaddr, Opts, any),
     {ok, Listen} = gen_tcp:listen(Port,
 				  [{packet,http},{reuseaddr,true},
@@ -400,7 +402,7 @@ handle_local({close,From,Reason},Socket,S0) ->
 handle_local({create_event,From,How,Data},_Socket,S0) ->
     IRef = S0#s.iref,
     Event = #event { iref=IRef, from=From, how=How, data=Data},
-    Wait1 = [Event|S0#s.wait],    
+    Wait1 = [Event|S0#s.wait],
     reply(Event, {ok, IRef}),
     {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
 
@@ -454,10 +456,10 @@ handle_remote({mesg, Mesg}, Socket, S0) ->
 handle_mesg({reply,IRef,Reply}, _Socket, S0) ->
     case lists:keytake(IRef, #event.iref, S0#s.wait) of
 	false ->
-	    io:format("got reply ~w = ~w (ignored)\n", [IRef,Reply]),
+	    ?debug("got reply ~w = ~w (ignored)\n", [IRef,Reply]),
 	    S0;
 	{value,Event,Wait1} ->
-	    io:format("got reply ~w = ~w (~w)\n", [IRef,Reply,Event]),
+	    ?debug("got reply ~w = ~w (~w)\n", [IRef,Reply,Event]),
 	    reply(Event, Reply),
 	    S0#s { wait=Wait1}
     end;
@@ -489,6 +491,7 @@ handle_mesg({start,M,F,As},_Socket,S0) ->
     spawn(M,F,[self()|As]),
     S0;
 handle_mesg({call,IRef,M,F,As},Socket,S0) ->
+    %% maybe direct this to gen_server call on spawned processes?
     try apply(M,F,As) of
 	Value ->
 	    Data = ws_encode({reply,IRef,{ok,Value}},S0#s.type),
@@ -501,6 +504,7 @@ handle_mesg({call,IRef,M,F,As},Socket,S0) ->
 	    S0
     end;
 handle_mesg({cast,_IRef,M,F,As},_Socket,S0) ->
+    %% maybe direct this to gen_server cast on spawned processes?
     catch (apply(M,F,As)),
     S0;
 handle_mesg(_Other, _Socket, S0) ->

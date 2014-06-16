@@ -7,7 +7,7 @@
 <script>
 <!-- port numbers used main=1233, frame1=1234, frame2=1235 -->
 window.onload = function() {
-      if (Wse.open("ws://"+location.hostname+":1233/websession")) {
+      if (Wse.open("ws://"+(location.hostname||"localhost")+":1233/websession")) {
         Wse.id = 'w0';
         Wse.start('frame_demo', 'run', ["i0"]);
     }

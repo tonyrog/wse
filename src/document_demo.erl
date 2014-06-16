@@ -53,7 +53,3 @@ info(Ws, Object, ObjName, What, Parent) ->
 
 to_text(X) ->
     lists:flatten(io_lib:format("~p", [X])).
-
-    
-    
-    

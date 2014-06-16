@@ -61,7 +61,15 @@
     });
 }());
 
-function WseClass() {
+var wse_console_debug = false;
+//
+// window.onerror = function(message, url, line)
+//    console.low("window error was invoked with message = " +
+//       message + ", url = " + url + ", line = " + line);
+// }
+// 
+
+function WseClass(enable_console) {
     this.win         = window;
     this.ws          = undefined;
     this.state       = "closed";
@@ -80,10 +88,30 @@ function WseClass() {
     this.FunctionTag = Ei.atom("function");
     this.ReplyTag    = Ei.atom("reply");
     this.NoReplyTag  = Ei.atom("noreply");
+
+    this.dummyConsole = {  
+	assert : function(){},  
+	log : function(){},  
+	warn : function(){},  
+	error : function(){},  
+	debug : function(){},  
+	dir : function(){},  
+	info : function(){}
+    };
+    if (enable_console && (window.console !== undefined))
+	this.console = window.console;
+    else
+	this.console = this.dummyConsole;
 };
 
-WseClass.prototype.getWse = function(id)
-{
+WseClass.prototype.enable_console_output = function(enable) {
+    if (enable && (window.console !== undefined))
+	this.console = window.console;
+    else
+	this.console = this.dummyConsole;
+}
+
+WseClass.prototype.getWse = function(id) {
     var i;
     for (i = 0; i < this.win.frames.length; i++) {
 	if (('Wse' in this.win.frames[i]) &&
@@ -123,6 +151,10 @@ WseClass.prototype.open = function(url) {
 		if (cmd !== undefined)
 		    this.send(wse.encode(cmd));
 	    }
+	    // overwrite the old request array with a new and let
+	    // the old array be garbage collected. The new array is 
+	    // not used right now, so we could set it to null, but keep
+	    // it for future ideas.
 	    wse.requests = new Array();
 	};
 	
@@ -145,7 +177,7 @@ WseClass.prototype.open = function(url) {
 //
 // Remove all children (DOM util)
 //
-WseClass.prototype.removeChildren = function(Cell) {
+WseClass.prototype.remove_children = function(Cell) {
     if (Cell.hasChildNodes()) {
 	while(Cell.childNodes.length >= 1)
 	    Cell.removeChild(Cell.firstChild);
@@ -226,7 +258,7 @@ WseClass.prototype.decode_value = function(Obj) {
 		if (typeof(elem[1]) == "number")
 		    return this.objects[elem[1]];
 		else {
-		    console.debug("object " + this.objects);
+		    this.console.debug("object " + this.objects);
 		}
 	    }
 	    return undefined;
@@ -240,7 +272,7 @@ WseClass.prototype.decode_value = function(Obj) {
 	}
 	return undefined;
     default:
-	console.debug("unhandled object "+ Obj);
+	this.console.debug("unhandled object "+ Obj);
 	return Obj;
     }
 };
@@ -334,12 +366,16 @@ WseClass.prototype.dispatch = function (Request) {
 	    fn = this.reply_fun[iref];
 	    obj = this.reply_obj[iref];
 	    ref = this.reply_ref[iref];
-	    console.debug("got reply "+iref+","+value+" fn="+fn+" obj="+obj+" ref="+ref);
+	    this.console.debug("got reply "+iref+","+value+" fn="+fn+" obj="+obj+" ref="+ref);
 	    if (fn != undefined) {
-		// delete?
-		this.reply_fun[iref] = null;
-		this.reply_obj[iref] = null;
-		this.reply_ref[iref] = null;
+		// delete? no splice for array. 
+		// and delete for objects attributes!
+		// this.reply_fun[iref] = null;  // in practice as delete!
+		// this.reply_obj[iref] = null;  // in practice as delete!
+		// this.reply_ref[iref] = null;  // in practice as delete!
+		this.reply_fun.splice(iref, 1);
+		this.reply_obj.splice(iref, 1);
+		this.reply_ref.splice(iref, 1);
 		fn(obj,ref,value);
 	    }
 	    return undefined;
@@ -355,20 +391,20 @@ WseClass.prototype.dispatch = function (Request) {
 	var argv = r.value;
 	if ((argv.length == 3) && Ei.eqAtom(argv[0],"send")) {
 	    var Cell = document.getElementById(argv[1]);
-	    // console.debug("SEND");
+	    // this.console.debug("SEND");
 	    if (typeof(argv[2]) == "string") {
 		Cell.innerHTML = Ei.pp(argv[2]);
 	    }
 	    else if (Ei.isTuple(argv[2]) || Ei.isArray(argv[2])) {
 		var elem = this.decode_ehtml(argv[2]);
-		this.removeChildren(Cell);
+		this.remove_children(Cell);
 		Cell.appendChild(elem);
 		// parentNode.replaceChild(elem, obj);
 	    }
 	    value = this.OkTag;  // FIXME
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"new")) {
-	    // console.debug("NEW_OBJECT");
+	    // this.console.debug("NEW_OBJECT");
 	    var obj = new Object();
 	    var fn  = window[this.decode_value(argv[1])];
 	    fn.apply(obj, this.decode_value(argv[2]));
@@ -377,9 +413,9 @@ WseClass.prototype.dispatch = function (Request) {
 	    value = rvalue;
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"newf")) {
-	    console.debug("new Function("+argv[1]+","+argv[2]+")");
+	    this.console.debug("new Function("+argv[1]+","+argv[2]+")");
 	    var fn = new Function(argv[1],argv[2]);
-	    console.debug("function = "+fn);
+	    this.console.debug("function = "+fn);
 	    rvalue = this.encode_value(fn);
 	    value = rvalue;
 	}
@@ -390,9 +426,10 @@ WseClass.prototype.dispatch = function (Request) {
 	    var val;
 	    val = window[fn].apply(objb, args);
 	    rvalue = this.encode_value(val);
-	    console.debug("call/3=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]));
+	    this.console.debug("call/3=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]));
 	    if (is_dsync && (fn === "call") && (val % 1 === 0)) {
-		console.debug("set reply_obj["+val+"] = "+objb);
+		// val is a reference in this case
+		this.console.debug("set reply_obj["+val+"] = "+objb);
 		objb.reply_obj[val] = this; // patch object
 		objb.reply_ref[val] = aref; // original ref
 	    }
@@ -406,9 +443,10 @@ WseClass.prototype.dispatch = function (Request) {
 	    var val;
 	    val  = (obja[meth]).apply(objb, args);
 	    rvalue = this.encode_value(val);
-	    console.debug("call/4=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]) + "," + Ei.pp(argv[4]));
+	    this.console.debug("call/4=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]) + "," + Ei.pp(argv[4]));
 	    if (is_dsync && (meth === "call") && (val % 1 === 0)) {
-		console.debug("set obja.reply_obj["+val+"] = "+this);
+		// val is a reference in this case
+		this.console.debug("set obja.reply_obj["+val+"] = "+this);
 		obja.reply_obj[val] = this; // patch object
 		obja.reply_ref[val] = aref; // original ref
 	    }
@@ -417,28 +455,29 @@ WseClass.prototype.dispatch = function (Request) {
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"get")) {
 	    var obj   = this.decode_value(argv[1]);
 	    var attr  = this.decode_value(argv[2]);
-	    rvalue = obj[attr];
-	    // var val   = obj.getAttribute(attr);
-	    console.debug(argv[1]+".get: "+attr+"="+rvalue);
+	    rvalue = obj[attr]; // both array and object attribute!
+	    this.console.debug(argv[1]+".get: "+attr+"="+rvalue);
 	    value = Ei.tuple(this.OkTag, this.encode_value(rvalue));
 	}
 	else if ((argv.length == 4) && Ei.eqAtom(argv[0],"set")) {
 	    var obj   = this.decode_value(argv[1]);
 	    var attr  = this.decode_value(argv[2]);
 	    rvalue = this.decode_value(argv[3]);
-	    console.debug(argv[1]+".set: "+attr+"="+argv[3]+"("+rvalue+")");
-	    // obj.setAttribute(attr, rvalue);
-	    obj[attr] = rvalue;
+	    this.console.debug(argv[1]+".set: "+attr+"="+argv[3]+"("+rvalue+")");
+	    obj[attr] = rvalue;  // both array and object attribute!
 	    value = this.OkTag;
 	}
 	else if ((argv.length === 2) && Ei.eqAtom(argv[0],"delete")) {
-	    this.objects[argv[1]] = null;
+	    // argv[1] must be the uniqID integer 
+	    // this.objects[argv[1]] = null;
+	    this.console.debug("deleting object "+argv[1]);
+	    this.objects.splice(argv[1],1);
 	    rvalue = null;
 	    value = this.OkTag;
 	}
     }
     if (iref == 0) {
-	// console.debug("ival=0");
+	// this.console.debug("ival=0");
 	return undefined;
     }
     else if (iref > 0) {
@@ -450,7 +489,7 @@ WseClass.prototype.dispatch = function (Request) {
     else {
 	t = Ei.tuple(this.NoReplyTag,-iref);
     }
-    // console.debug("t = " + Ei.pp(t));
+    // this.console.debug("t = " + Ei.pp(t));
     return t;
 };
 
@@ -478,7 +517,7 @@ WseClass.prototype.call = function (mod,fun,args,onreply) {
 	Ei.atom(mod),Ei.atom(fun),args);
     if (this.state == "open") {
 	this.ws.send(this.encode(cmd));
-	console.debug("set reply_fun["+ref+"] = "+onreply);
+	this.console.debug("set reply_fun["+ref+"] = "+onreply);
 	this.reply_fun[ref] = onreply;
 	this.reply_obj[ref] = this;
 	this.reply_ref[ref] = ref;
@@ -486,7 +525,7 @@ WseClass.prototype.call = function (mod,fun,args,onreply) {
     }
     else {
 	this.requests[ref] = cmd;
-	console.debug("set reply_fun["+ref+"] = "+onreply);
+	this.console.debug("set reply_fun["+ref+"] = "+onreply);
 	this.reply_fun[ref]  = onreply;
 	this.reply_obj[ref] = this;
 	this.reply_ref[ref] = ref;
@@ -497,7 +536,7 @@ WseClass.prototype.call = function (mod,fun,args,onreply) {
 // Used for handle return relay
 WseClass.prototype.reply = function (iref,value) {
     var reply = Ei.tuple(this.ReplyTag,iref,value);
-    console.debug("sending reply "+reply+"id="+this.id);
+    this.console.debug("sending reply "+reply+"id="+this.id);
     if (this.state == "open") {
 	this.ws.send(this.encode(reply));
 	return true;
@@ -538,4 +577,4 @@ WseClass.prototype.notify = function (ref,data) {
     return false;
 };
 
-var Wse = new WseClass();
+var Wse = new WseClass(wse_console_debug);

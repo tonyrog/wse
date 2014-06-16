@@ -1,21 +1,18 @@
 <html>
 <head>
-<title>Table demo page</title>
+<title>Animated fish demo</title>
 <script src='ej.js'></script>
 <script src='wse.js'></script>
 <script>
 
 window.onload = function() {
    if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession")) {
-      Wse.start('table_demo', 'run', ["t1"]);
+      Wse.start('fish_demo', 'run', ["myid"]);
    }
-   else
-     alert("WebSockets not supported");
-};
-
+}
 </script>
 </head>
 <body>
-<div id="t1" width=640 height=480></div>
+<div id="myid"></div>
 </body>
 </html>
