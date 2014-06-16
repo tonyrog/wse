@@ -7,7 +7,7 @@
 
 window.onload = function() {
    if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession")) {
-      Wse.enable_console_output(true);
+      // Wse.enable_console_output(true);
       Wse.start('wse_button_demo', 'run', ["myid"]);
    }
    else

@@ -7,7 +7,7 @@
 
 window.onload = function() {
    if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession")) {
-      Wse.start('raphael_demo', 'run', ["i1"]);
+      Wse.start('wse_raphael_demo', 'run', ["i1"]);
    }
    else
      alert("WebSockets not supported");

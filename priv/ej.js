@@ -97,6 +97,16 @@ EiClass.prototype.isTupleSize = function(Obj,n) {
 	(Obj.length == n);
 };
 
+EiClass.prototype.isBinary = function (Obj) {
+    return (Obj.type === "Binary");
+};
+
+EiClass.prototype.binary_size = function (Obj) {
+    if (Obj.type === "Binary") return Obj.value.byteLength;
+    return 0;
+};
+
+
 EiClass.prototype.atom = function (Obj) {
     return new EiAtom(Obj);
 };

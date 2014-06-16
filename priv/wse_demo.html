@@ -3,10 +3,10 @@
 <script src='ej.js'></script>
 <script src='wse.js'></script>
 <script>
-     window.onload = function() {
-       if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession"))
-         Wse.start('wse_demo', 'run', ["myid"]);
-     };
+  window.onload = function() {
+    if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession"))
+      Wse.start('wse_demo', 'run', ["myid"]);
+  };
 </script></head>
 <body>
   <div id="myid"></div>

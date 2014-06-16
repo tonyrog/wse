@@ -150,14 +150,14 @@ newf(Ws, Args, Body) when is_list(Args), is_list(Body) ->
     rsync(Ws, {newf,Args,Body}).
 
 %% @doc
-%%   Release an object from the encoding object array
-%%   (do not call this directly)
+%%   Release an object from the encoding object array.
+%%   use with care
 %% @end
 
 -spec delete(Ws::wse(), Object::wse_object()) ->
 		    void().
 
-delete(Ws, {object,ID}) ->
+delete(Ws, {object,ID,_Ref}) ->
     rsync(Ws, {delete,ID});
 delete(_Ws, _) ->
     ok.

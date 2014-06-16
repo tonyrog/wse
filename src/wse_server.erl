@@ -53,7 +53,8 @@
 	  proto,                %% from handshake "bert"?
 	  type,                 %% ?WS_OP_TEXT|?WS_OP_BINARY
 	  fs   = [],            %% fragments
-	  wait = []             %% #event
+	  wait = [],            %% #event
+	  gc_table              %% ets table of objects
 	}).
 
 
@@ -188,7 +189,8 @@ ws_handshake(Socket, _Uri, Opts) ->
 	    S0 = #s {proto=WsProto,
 		     type=Type,
 		     pingInterval=PingInterval,
-		     pongTimeout=PongTimeout
+		     pongTimeout=PongTimeout,
+		     gc_table = ets:new(gc_table, [])
 		    },
 	    S1 = start_ping_timer(S0),
 	    ws_loop(<<>>, Socket, S1);
@@ -266,6 +268,21 @@ ws_loop(Buf, Socket, S) ->
 	{'EXIT',_Pid,_Reason} ->
 	    ?debug("exit from ~w reason=~p\n", [_Pid, _Reason]),
 	    ws_loop(Buf, Socket, S);
+
+	{collect,ID} ->
+	    case ets:update_counter(S#s.gc_table, ID, -1) of
+		0 -> 
+		    ?debug("garbage collect: delete ~w\n", [ID]),
+		    IRef = S#s.iref,
+		    Data = ws_encode({async,IRef,{delete,ID}},S#s.type),
+		    gen_tcp:send(Socket,  ws_make_server_frame(Data,S#s.type)),
+		    S1 = S#s { iref=next_ref(IRef) },
+		    ets:delete(S#s.gc_table, ID),
+		    ws_loop(Buf, Socket, S1);
+		_I ->
+		    ?debug("garbage collect: ~w ref=~w\n", [ID,_I]),
+		    ws_loop(Buf, Socket, S)
+	    end;
 	
 	Message ->
 	    ?debug("handle_local: ~p", [Message]),
@@ -454,7 +471,8 @@ handle_remote({close,Data}, Socket, S0) ->
 	    gen_tcp:send(Socket, ws_make_server_frame(Data,?WS_OP_CLOSE)),
 	    S0#s { closing = client }
     end;
-handle_remote({mesg, Mesg}, Socket, S0) ->
+handle_remote({mesg, Mesg0}, Socket, S0) ->
+    Mesg = install_resource_objects(Mesg0, S0#s.gc_table),
     handle_mesg(Mesg, Socket, S0).
 
 
@@ -516,6 +534,48 @@ handle_mesg({cast,_IRef,M,F,As},_Socket,S0) ->
 handle_mesg(_Other, _Socket, S0) ->
     ?debug("unknown mesg ~p\n", [_Other]),
     S0.
+
+%% 
+%% Transform a message sent from java script so that
+%% {object,N}   => {objec,N,resource()}
+%% {function,N} => {function,N,resource()}
+%%
+install_resource_objects(Message, GcTable) ->
+    install_(Message, GcTable).
+
+install_(X, _GcTable) when is_number(X) -> X;
+install_(X, _GcTable) when is_atom(X) -> X;
+install_(X, _GcTable) when is_binary(X) -> X;
+install_(X, GcTable) when is_list(X) ->
+    try erlang:io_list_size(X) of
+	_ -> X
+    catch
+	error:_ -> install_list_(X, [], GcTable)
+    end;
+install_({object,ID}, GcTable) when is_integer(ID) ->
+    ets:insert_new(GcTable, {ID,0}),
+    ets:update_counter(GcTable,ID,1),
+    %% _RID is not relly needed so we use ID instead! (still unique)
+    {resource,_RID,Ref} = resource:notify_when_destroyed(self(),
+							 {collect,ID}),
+    {object,ID,Ref};
+install_(X={object,_}, _GcTable) -> X;
+	
+install_(X, GcTable) when is_tuple(X) ->
+    install_tuple_(size(X), X, [], GcTable).
+
+install_tuple_(0, _X, Acc, _GcTable) -> 
+    list_to_tuple(Acc);
+install_tuple_(I, X, Acc, GcTable) ->
+    Y = install_(element(I,X), GcTable),
+    install_tuple_(I-1, X, [Y|Acc], GcTable).
+
+install_list_([], Acc, _GcTable) -> 
+    lists:reverse(Acc);
+install_list_([H|T], Acc, GcTable) ->
+    Y = install_(H, GcTable),
+    install_list_(T, [Y|Acc], GcTable).
+
 
 start_ping_timer(S0) ->
     if is_integer(S0#s.pingInterval),S0#s.pingInterval>0 ->

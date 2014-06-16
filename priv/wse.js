@@ -74,13 +74,13 @@ function WseClass(enable_console) {
     this.ws          = undefined;
     this.state       = "closed";
 
-    this.objects     = new Array();
+    this.objects     = {};  // object of objects
 
     this.iref        = 1;
     this.requests    = new Array();
-    this.reply_fun   = new Array();
-    this.reply_obj   = new Array();
-    this.reply_ref   = new Array();
+    this.reply_fun   = {};
+    this.reply_obj   = {};
+    this.reply_ref   = {};
 
     this.OkTag       = Ei.atom("ok");
     this.ErrorTag    = Ei.atom("error");
@@ -184,6 +184,22 @@ WseClass.prototype.remove_children = function(Cell) {
     }
 }
 
+WseClass.prototype.lookup_object = function(index) {
+    var obj = this.objects[index];
+    this.console.debug("lookup object "+index+" = "+obj);
+    return obj;
+}
+
+WseClass.prototype.insert_object = function(index,obj) {
+    this.console.debug("insert object "+index+" = "+obj);
+    this.objects[index] = obj;
+}
+
+WseClass.prototype.delete_object = function(index) {
+    this.console.debug("deleting object "+index);
+    delete this.objects[index];
+}
+
 //
 // Decode javascript object into BERT rpc values
 //
@@ -196,7 +212,7 @@ WseClass.prototype.encode_value = function(Obj) {
 	// {object, window}    - the current window object
 	// {object, document}  - the current document object
 	// {object, id}        - DOM object with id field
-	// {object, num}       - Stored in objects array
+	// {object, num}       - Stored in objects object!
 	if (Obj == window.self)
 	    return Ei.tuple(this.ObjectTag,Ei.atom("window"));
 	else if (Obj == window.document) 
@@ -209,10 +225,10 @@ WseClass.prototype.encode_value = function(Obj) {
 	    if (Obj == document.getElementById(Obj.id))
 		return Ei.tuple(this.ObjectTag,Obj.id);
 	}
-	this.objects[Obj.uniqueId] = Obj;
+	this.insert_object(Obj.uniqueId, Obj);
 	return Ei.tuple(this.ObjectTag,Obj.uniqueId);
     case "function":
-	this.objects[Obj.uniqueId] = Obj;
+	this.insert_object(Obj.uniqueId, Obj);
 	return Ei.tuple(this.FunctionTag,Obj.uniqueId);
     case "undefined":
 	return Ei.atom("undefined");
@@ -230,6 +246,7 @@ WseClass.prototype.encode_value = function(Obj) {
 // {function,num}     => objects[num]
 // [H1,H2...Hn]       => Array
 //
+
 WseClass.prototype.decode_value = function(Obj) {
     switch(typeof(Obj)) {
     case "number":  return Obj;
@@ -250,18 +267,29 @@ WseClass.prototype.decode_value = function(Obj) {
 		else if (Ei.eqAtom(elem[1], "navigator"))
 		    return navigator;
 		else if (typeof(elem[1]) == "number")
-		    return this.objects[elem[1]];
+		    return this.lookup_object(elem[1]);
 		else if (typeof(elem[1]) == "string")
 		    return window.document.getElementById(elem[1]);
 	    }
+	    // this is a garbage collected version {object,num,res-bin}
+	    if ((elem.length==3) && Ei.eqAtom(elem[0],"object")) {
+		if ((typeof(elem[1]) == "number") && Ei.isBinary(elem[2])) {
+		    return this.lookup_object(elem[1]);
+		}
+		return undefined;
+	    }
 	    if ((elem.length==2) && Ei.eqAtom(elem[0],"function")) {
 		if (typeof(elem[1]) == "number")
-		    return this.objects[elem[1]];
-		else {
-		    this.console.debug("object " + this.objects);
-		}
+		    return this.lookup_object(elem[1]);
+		return undefined;
 	    }
-	    return undefined;
+	    // this is a garbage collected version {function,num,res-bin}
+	    if ((elem.length==3) && Ei.eqAtom(elem[0],"function")) {
+		if ((typeof(elem[1]) == "number") && Ei.isBinary(elem[2])) {
+		    return this.lookup_object(elem[1]);
+		}
+		return undefined;
+	    }
 	}
 	else if (Ei.isArray(Obj)) {
 	    var i;
@@ -368,14 +396,9 @@ WseClass.prototype.dispatch = function (Request) {
 	    ref = this.reply_ref[iref];
 	    this.console.debug("got reply "+iref+","+value+" fn="+fn+" obj="+obj+" ref="+ref);
 	    if (fn != undefined) {
-		// delete? no splice for array. 
-		// and delete for objects attributes!
-		// this.reply_fun[iref] = null;  // in practice as delete!
-		// this.reply_obj[iref] = null;  // in practice as delete!
-		// this.reply_ref[iref] = null;  // in practice as delete!
-		this.reply_fun.splice(iref, 1);
-		this.reply_obj.splice(iref, 1);
-		this.reply_ref.splice(iref, 1);
+		delete this.reply_fun[iref];
+		delete this.reply_obj[iref];
+		delete this.reply_ref[iref];
 		fn(obj,ref,value);
 	    }
 	    return undefined;
@@ -469,9 +492,7 @@ WseClass.prototype.dispatch = function (Request) {
 	}
 	else if ((argv.length === 2) && Ei.eqAtom(argv[0],"delete")) {
 	    // argv[1] must be the uniqID integer 
-	    // this.objects[argv[1]] = null;
-	    this.console.debug("deleting object "+argv[1]);
-	    this.objects.splice(argv[1],1);
+	    this.delete_object(argv[1]);
 	    rvalue = null;
 	    value = this.OkTag;
 	}
