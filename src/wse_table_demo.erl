@@ -5,7 +5,7 @@
 %%% @end
 %%% Created :  24 Apr 2014 by Tony Rogvall <tony@rogvall.se>
 
--module(table_demo).
+-module(wse_table_demo).
 -export([run/2]).
 
 -compile(export_all).

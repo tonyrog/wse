@@ -102,6 +102,7 @@ listen_loop(Listen,Opts) ->
     end.
     
 accept(Parent, Listen, Opts) ->
+    process_flag(trap_exit, true),
     case gen_tcp:accept(Listen) of
 	{ok, Socket} ->
 	    ?debug("Connected to ~p\n", [inet:peername(Socket)]),
@@ -260,7 +261,11 @@ ws_loop(Buf, Socket, S) ->
 	    ?debug("tcp_closed ~w", [Socket]),
 	    %% reply to all remaining callers
 	    lists:foreach(fun(E) -> reply(E, {error,closed}) end, S#s.wait),
-	    ok;
+	    exit(closed);
+
+	{'EXIT',_Pid,_Reason} ->
+	    ?debug("exit from ~w reason=~p\n", [_Pid, _Reason]),
+	    ws_loop(Buf, Socket, S);
 	
 	Message ->
 	    ?debug("handle_local: ~p", [Message]),
@@ -488,7 +493,8 @@ handle_mesg({info,_Data},_Socket,S0) ->
     ?debug("info: ~p\n", [_Data]),
     S0;
 handle_mesg({start,M,F,As},_Socket,S0) ->
-    spawn(M,F,[self()|As]),
+    _Pid = spawn_link(M,F,[self()|As]),
+    ?debug("wse process ~w:~w/~w, started, pid=~p\n", [M,F,length(As),_Pid]),
     S0;
 handle_mesg({call,IRef,M,F,As},Socket,S0) ->
     %% maybe direct this to gen_server call on spawned processes?

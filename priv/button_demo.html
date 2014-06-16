@@ -1,20 +1,22 @@
 <html>
 <head>
-<title>Frame</title>
+<title>Button demo page</title>
 <script src='ej.js'></script>
 <script src='wse.js'></script>
 <script>
 
 window.onload = function() {
    if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession")) {
-      Wse.id = 'w1';
-      Wse.start('wse_frame_demo', 'run', ["i1"]);
+      Wse.enable_console_output(true);
+      Wse.start('wse_button_demo', 'run', ["myid"]);
    }
-}
+   else
+     alert("WebSockets not supported");
+};
+
 </script>
 </head>
 <body>
-<h2>Frame1</h2>
-<div id="i1" width=620 height=170></div>
+<div id="myid"></div>
 </body>
 </html>

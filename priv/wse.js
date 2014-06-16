@@ -515,6 +515,7 @@ WseClass.prototype.call = function (mod,fun,args,onreply) {
     var ref = this.iref++;
     var cmd = Ei.tuple(Ei.atom("call"),ref,
 	Ei.atom(mod),Ei.atom(fun),args);
+    this.console.debug("call mod="+mod+", fun="+fun+", args="+args);
     if (this.state == "open") {
 	this.ws.send(this.encode(cmd));
 	this.console.debug("set reply_fun["+ref+"] = "+onreply);
@@ -550,6 +551,7 @@ WseClass.prototype.cast = function (mod,fun,args) {
     var ref = this.iref++;
     var cmd = Ei.tuple(Ei.atom("cast"),ref,
 	Ei.atom(mod),Ei.atom(fun),args);
+    this.console.debug("cast mod="+mod+", fun="+fun+", args="+args);
     if (this.state == "open") {
 	this.ws.send(this.encode(cmd));
 	return true;
@@ -566,6 +568,7 @@ WseClass.prototype.cast = function (mod,fun,args) {
 //
 WseClass.prototype.notify = function (ref,data) {
     var cmd = Ei.tuple(Ei.atom("notify"),ref,data);
+    this.console.debug("notify "+ ref + ", data="+data);
     if (this.state == "open") {
 	this.ws.send(this.encode(cmd));
 	return true;

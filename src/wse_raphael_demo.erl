@@ -5,7 +5,7 @@
 %%% @end
 %%% Created :  9 Feb 2014 by Tony Rogvall <tony@rogvall.se>
 
--module(raphael_demo).
+-module(wse_raphael_demo).
 
 -export([run/2]).
 
@@ -15,19 +15,20 @@
 run(Ws, Where) ->
     io:format("raphael_demo: called\n"),
     ok = wse:load(Ws, "raphael-min.js"),
-    {ok,Paper} = raphael:new(Ws, Where, 640, 480),
+    {ok,Paper} = raphael:new(Ws, Where, 640, 540),
 
     %% must create the image element here!
-%%    {ok,_Image1} = wse:load_image(Ws, "bd.jpg"),
-%%    {ok,IMG1} = raphael:image(Ws, Paper, "bd.jpg", 0, 50, 320, 240),
-%%    {ok,IMG2} = raphael:image(Ws, Paper, "bd.jpg", 0, 100, 320, 240),
-%%    raphael:attr(Ws, IMG2, "transform", "s1-1"),
-%%    raphael:attr(Ws, IMG2, "opacity", ".5"),
-%%    {ok,R5} = raphael:rect(Ws, Paper, 10, 50, 120, 100),
-%%    raphael:attr(Ws, R5, "fill", "90-#fff-#000"),
-%%    raphael:attr(Ws, R5, "fill", "#FF0000"),    
-%%    raphael:attr(Ws, R5, "stroke", "none"),    
-%%    raphael:attr(Ws, R5, "opacity", "none"),
+    {ok,Image} = wse:load_image(Ws, "bd.jpg"),
+    {ok,Src} = wse:get(Ws, Image, "src"),
+    {ok,_I1} = raphael:image(Ws, Paper, Src, 140, 140, 320, 240),
+    {ok,I2}  = raphael:image(Ws, Paper, Src, 140, 380, 320, 240),
+    raphael:attr(Ws, I2, "transform", "s1-1"),
+    raphael:attr(Ws, I2, "opacity", "0.5"),
+    {ok,R6} = raphael:rect(Ws, Paper, 0, 380, 600, 160),
+    raphael:attr(Ws, R6, "fill", "90-#333-#333"),
+    raphael:attr(Ws, R6, "stroke", "none"),    
+    raphael:attr(Ws, R6, "opacity", "0.5"),
+
 
     {ok,C1} = raphael:circle(Ws, Paper, 10, 10, 10),
     raphael:attr(Ws, C1, "fill", "#FF0000"),

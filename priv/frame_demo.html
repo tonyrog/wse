@@ -9,7 +9,7 @@
 window.onload = function() {
       if (Wse.open("ws://"+(location.hostname||"localhost")+":1233/websession")) {
         Wse.id = 'w0';
-        Wse.start('frame_demo', 'run', ["i0"]);
+        Wse.start('wse_frame_demo', 'run', ["i0"]);
     }
 }
 </script>

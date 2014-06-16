@@ -22,8 +22,6 @@
 -export([wait_event/2]).
 -export([load_image/2, load/2]).
 
-
-
 -compile(export_all).
 
 -type void() :: ok.

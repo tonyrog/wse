@@ -5,7 +5,7 @@
 %%% @end
 %%% Created :  24 Apr 2014 by Tony Rogvall <tony@rogvall.se>
 
--module(document_demo).
+-module(wse_document_demo).
 -export([run/2]).
 
 -compile(export_all).
