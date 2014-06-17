@@ -34,6 +34,8 @@
 //     {start, Mod, Fun, Args} 
 //     {call,  Mod, Fun, Args} -> Value
 //     {cast,  Mod, Fun, Args}
+//     {register, Name}
+//     {unregister}
 //
 //     {notify, ID, Data}
 //     {info,  String}
@@ -84,6 +86,7 @@ function WseClass(enable_console) {
 
     this.OkTag       = Ei.atom("ok");
     this.ErrorTag    = Ei.atom("error");
+    this.ExceptionTag = Ei.atom("exception");
     this.ObjectTag   = Ei.atom("object");
     this.FunctionTag = Ei.atom("function");
     this.ReplyTag    = Ei.atom("reply");
@@ -399,7 +402,12 @@ WseClass.prototype.dispatch = function (Request) {
 		delete this.reply_fun[iref];
 		delete this.reply_obj[iref];
 		delete this.reply_ref[iref];
-		fn(obj,ref,value);
+		try {
+		    fn(obj,ref,value);
+		}
+		catch (err) {
+		    this.console.info("reply function crashed "+err.message);
+		}
 	    }
 	    return undefined;
 	}
@@ -414,49 +422,69 @@ WseClass.prototype.dispatch = function (Request) {
 	var argv = r.value;
 	if ((argv.length == 3) && Ei.eqAtom(argv[0],"send")) {
 	    var Cell = document.getElementById(argv[1]);
-	    // this.console.debug("SEND");
-	    if (typeof(argv[2]) == "string") {
-		Cell.innerHTML = Ei.pp(argv[2]);
+
+	    try {
+		if (typeof(argv[2]) == "string") {
+		    Cell.innerHTML = Ei.pp(argv[2]);
+		}
+		else if (Ei.isTuple(argv[2]) || Ei.isArray(argv[2])) {
+		    var elem = this.decode_ehtml(argv[2]);
+		    this.remove_children(Cell);
+		    Cell.appendChild(elem);
+		}
+		value = this.OkTag;
 	    }
-	    else if (Ei.isTuple(argv[2]) || Ei.isArray(argv[2])) {
-		var elem = this.decode_ehtml(argv[2]);
-		this.remove_children(Cell);
-		Cell.appendChild(elem);
-		// parentNode.replaceChild(elem, obj);
+	    catch(err) {
+		value = Ei.tuple(this.ExceptionTag, err.message);
 	    }
-	    value = this.OkTag;  // FIXME
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"new")) {
-	    // this.console.debug("NEW_OBJECT");
 	    var obj = new Object();
 	    var fn  = window[this.decode_value(argv[1])];
-	    fn.apply(obj, this.decode_value(argv[2]));
-	    obj.__proto__ = fn.prototype;
-	    rvalue = this.encode_value(obj);
-	    value = rvalue;
+
+	    try {
+		fn.apply(obj, this.decode_value(argv[2]));
+		obj.__proto__ = fn.prototype;
+		rvalue = this.encode_value(obj);
+		value = rvalue;
+	    }
+	    catch(err) {
+		value = Ei.tuple(this.ExceptionTag, err.message);
+	    }
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"newf")) {
 	    this.console.debug("new Function("+argv[1]+","+argv[2]+")");
-	    var fn = new Function(argv[1],argv[2]);
-	    this.console.debug("function = "+fn);
-	    rvalue = this.encode_value(fn);
-	    value = rvalue;
+	    try {
+		var fn = new Function(argv[1],argv[2]);
+		this.console.debug("function = "+fn);
+		rvalue = this.encode_value(fn);
+		value = rvalue;
+	    }
+	    catch(err) {
+		value = Ei.tuple(this.ExceptionTag, err.message);
+	    }
 	}
 	else if ((argv.length == 4) && Ei.eqAtom(argv[0],"call")) {
 	    var fn   = this.decode_value(argv[1]);
 	    var objb = this.decode_value(argv[2]);
 	    var args = this.decode_value(argv[3]);
 	    var val;
-	    val = window[fn].apply(objb, args);
-	    rvalue = this.encode_value(val);
-	    this.console.debug("call/3=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]));
-	    if (is_dsync && (fn === "call") && (val % 1 === 0)) {
-		// val is a reference in this case
-		this.console.debug("set reply_obj["+val+"] = "+objb);
-		objb.reply_obj[val] = this; // patch object
-		objb.reply_ref[val] = aref; // original ref
+
+	    try {
+		val = window[fn].apply(objb, args);
+		rvalue = this.encode_value(val);
+		this.console.debug("call/3=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]));
+		if (is_dsync && (fn === "call") && (val % 1 === 0)) {
+		    // val is a reference in this case
+		    this.console.debug("set reply_obj["+val+"] = "+objb);
+		    objb.reply_obj[val] = this; // patch object
+		    objb.reply_ref[val] = aref; // original ref
+		}
+		value = Ei.tuple(this.OkTag, rvalue);
 	    }
-	    value = Ei.tuple(this.OkTag, rvalue);
+	    catch(err) {
+		value = Ei.tuple(this.ErrorTag, err.message);
+	    }
 	}
 	else if ((argv.length == 5) && Ei.eqAtom(argv[0],"call")) {
 	    var obja = this.decode_value(argv[1]);
@@ -464,31 +492,47 @@ WseClass.prototype.dispatch = function (Request) {
 	    var objb = this.decode_value(argv[3]);
 	    var args = this.decode_value(argv[4]);
 	    var val;
-	    val  = (obja[meth]).apply(objb, args);
-	    rvalue = this.encode_value(val);
-	    this.console.debug("call/4=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]) + "," + Ei.pp(argv[4]));
-	    if (is_dsync && (meth === "call") && (val % 1 === 0)) {
-		// val is a reference in this case
-		this.console.debug("set obja.reply_obj["+val+"] = "+this);
-		obja.reply_obj[val] = this; // patch object
-		obja.reply_ref[val] = aref; // original ref
+
+	    try {
+		val  = (obja[meth]).apply(objb, args);
+		rvalue = this.encode_value(val);
+		this.console.debug("call/4=" + Ei.pp(argv[1]) + "," + Ei.pp(argv[2]) + "," + Ei.pp(argv[3]) + "," + Ei.pp(argv[4]));
+		if (is_dsync && (meth === "call") && (val % 1 === 0)) {
+		    // val is a reference in this case
+		    this.console.debug("set obja.reply_obj["+val+"] = "+this);
+		    obja.reply_obj[val] = this; // patch object
+		    obja.reply_ref[val] = aref; // original ref
+		}
+		value = Ei.tuple(this.OkTag, rvalue);
 	    }
-	    value = Ei.tuple(this.OkTag, rvalue);
+	    catch(err) {
+		value = Ei.tuple(this.ErrorTag, err.message);
+	    }
 	}
 	else if ((argv.length == 3) && Ei.eqAtom(argv[0],"get")) {
 	    var obj   = this.decode_value(argv[1]);
 	    var attr  = this.decode_value(argv[2]);
-	    rvalue = obj[attr]; // both array and object attribute!
-	    this.console.debug(argv[1]+".get: "+attr+"="+rvalue);
-	    value = Ei.tuple(this.OkTag, this.encode_value(rvalue));
+	    try {
+		rvalue = obj[attr]; // both array and object attribute!
+		this.console.debug(argv[1]+".get: "+attr+"="+rvalue);
+		value = Ei.tuple(this.OkTag, this.encode_value(rvalue));
+	    }
+	    catch (err) {
+		value = Ei.tuple(this.ErrorTag, err.message);
+	    }
 	}
 	else if ((argv.length == 4) && Ei.eqAtom(argv[0],"set")) {
 	    var obj   = this.decode_value(argv[1]);
 	    var attr  = this.decode_value(argv[2]);
 	    rvalue = this.decode_value(argv[3]);
 	    this.console.debug(argv[1]+".set: "+attr+"="+argv[3]+"("+rvalue+")");
-	    obj[attr] = rvalue;  // both array and object attribute!
-	    value = this.OkTag;
+	    try {
+		obj[attr] = rvalue;  // both array and object attribute!
+		value = this.OkTag;
+	    }
+	    catch (err) {
+		value = Ei.tuple(this.ErrorTag, err.message);
+	    }
 	}
 	else if ((argv.length === 2) && Ei.eqAtom(argv[0],"delete")) {
 	    // argv[1] must be the uniqID integer 
@@ -514,18 +558,26 @@ WseClass.prototype.dispatch = function (Request) {
     return t;
 };
 
+WseClass.prototype.send_request = function (ref, request)
+{
+    if (this.state === "open") {
+	this.ws.send(this.encode(request));
+    }
+    else {
+	// safe until channel is open
+	this.requests[ref] = request;
+    }
+}
+
 //
 // Start remote controller "program" 
 //
 WseClass.prototype.start = function (mod,fun,args) {
+    var ref = this.iref++;
     var cmd = Ei.tuple(Ei.atom("start"),Ei.atom(mod),Ei.atom(fun),args);
-    if (this.state === "open")
-	this.ws.send(this.encode(cmd));
-    else {
-	var ref = this.iref++;
-	this.requests[ref] = cmd;
-    }
-    return true;
+
+    this.send_request(ref, cmd);
+    return ref;
 };
 
 //
@@ -534,25 +586,15 @@ WseClass.prototype.start = function (mod,fun,args) {
 //
 WseClass.prototype.call = function (mod,fun,args,onreply) {
     var ref = this.iref++;
-    var cmd = Ei.tuple(Ei.atom("call"),ref,
-	Ei.atom(mod),Ei.atom(fun),args);
+    var cmd = Ei.tuple(Ei.atom("call"),ref,Ei.atom(mod),Ei.atom(fun),args);
+
     this.console.debug("call mod="+mod+", fun="+fun+", args="+args);
-    if (this.state == "open") {
-	this.ws.send(this.encode(cmd));
-	this.console.debug("set reply_fun["+ref+"] = "+onreply);
-	this.reply_fun[ref] = onreply;
-	this.reply_obj[ref] = this;
-	this.reply_ref[ref] = ref;
-	return ref;
-    }
-    else {
-	this.requests[ref] = cmd;
-	this.console.debug("set reply_fun["+ref+"] = "+onreply);
-	this.reply_fun[ref]  = onreply;
-	this.reply_obj[ref] = this;
-	this.reply_ref[ref] = ref;
-	return ref;
-    }
+    this.reply_fun[ref] = onreply;
+    this.reply_obj[ref] = this;
+    this.reply_ref[ref] = ref;
+    this.console.debug("set reply_fun["+ref+"] = "+onreply);
+    this.send_request(ref, cmd);
+    return ref;
 };
 
 // Used for handle return relay
@@ -570,35 +612,42 @@ WseClass.prototype.reply = function (iref,value) {
 //
 WseClass.prototype.cast = function (mod,fun,args) {
     var ref = this.iref++;
-    var cmd = Ei.tuple(Ei.atom("cast"),ref,
-	Ei.atom(mod),Ei.atom(fun),args);
+    var cmd = Ei.tuple(Ei.atom("cast"),ref,Ei.atom(mod),Ei.atom(fun),args);
     this.console.debug("cast mod="+mod+", fun="+fun+", args="+args);
-    if (this.state == "open") {
-	this.ws.send(this.encode(cmd));
-	return true;
-    }
-    else {
-	this.requests[ref] = cmd;
-	return true;
-    }
-    return false;
+    this.send_request(ref, cmd);
+    return true;
 };
 
 //
-// Send event 
+// Send notification 
 //
 WseClass.prototype.notify = function (ref,data) {
     var cmd = Ei.tuple(Ei.atom("notify"),ref,data);
     this.console.debug("notify "+ ref + ", data="+data);
-    if (this.state == "open") {
-	this.ws.send(this.encode(cmd));
-	return true;
-    }
-    else {
-	this.requests[ref] = cmd;
-	return true;
-    }
-    return false;
+    this.send_request(ref, cmd);
+    return true;
 };
+
+//
+// Register a websocket (on the erlang node side)
+// could nearly call erlang:register through the call
+// but only nearly
+//
+WseClass.prototype.register = function (name) {
+    var ref = this.iref++;
+    var cmd = Ei.tuple(Ei.atom("register"),Ei.atom(name));
+    this.console.debug("register "+ name);
+    this.send_request(ref, cmd);
+    return true;
+}
+
+// Unregister a websocket (on the erlang node side)
+WseClass.prototype.unregister = function () {
+    var ref = this.iref++;
+    var cmd = Ei.tuple(Ei.atom("unregister"));
+    this.console.debug("unregister");
+    this.send_request(ref, cmd);
+    return true;
+}
 
 var Wse = new WseClass(wse_console_debug);

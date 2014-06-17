@@ -20,6 +20,11 @@
 -export([array/1]).
 -export([create_event/1, create_event/3]).
 -export([wait_event/2]).
+-export([createElement/2]).
+-export([createTextNode/2]).
+-export([getElementsByTagName/2]).
+-export([getElementById/2]).
+-export([appendChild/3]).
 -export([load_image/2, load/2]).
 
 -compile(export_all).
@@ -262,6 +267,54 @@ appendChild(Ws, Element, Child) ->
     ok.
 
 %% @doc
+%%    Retrive an array of DOM objects by tag name
+%%    Short cut for
+%%    <ptr>
+%%         call(Ws, document(), getElementsByTagName, [Name])
+%%    </ptr>
+%% @end
+%%
+-spec getElementsByTagName(Ws::wse(), Name::string()) ->
+				  {ok,Array::wse_object()} | 
+				  {error,Reason::string()}.
+getElementsByTagName(Ws, Name) ->
+    call(Ws, document(), getElementsByTagName, [Name]).
+
+
+%% @doc
+%%    Retrive a DOM object by its id
+%%    Short cut for
+%%    <ptr>
+%%         call(Ws, document(), getElementById, [ID]).
+%%    </ptr>
+%% @end
+%%
+-spec getElementById(Ws::wse(), ID::string()) ->
+			    {ok,Elem::wse_object()} | 
+			    {error,Reason::string()}.
+getElementById(Ws, ID) ->
+    call(Ws, document(), getElementById, [ID]).
+
+
+%% @doc 
+%%    Get first child
+%% @end
+firstChild(Ws, Object) ->
+    get(Ws, Object, firstChild).
+
+%% @doc 
+%%    Get last child
+%% @end
+lastChild(Ws, Object) ->
+    get(Ws, Object, lastChild).
+
+%% @doc
+%%    Get next sibling
+%% @end
+nextSibling(Ws, Object) ->
+    get(Ws, Object, nextSibling).
+
+%% @doc
 %%   Load an image into the document and return 
 %%   image the object.
 %% @end
@@ -274,8 +327,8 @@ load_image(Ws, Src) ->
     {ok,Style} = wse:get(Ws, Image, "style"),
     set(Ws, Style, "display", "none"),
     %% set(Ws, Image, "type", "image/jpeg");
-    {ok,Head} = call(Ws, document(), getElementsByTagName, ["head"]),
-    {ok,Elem} = get(Ws, Head, 0),
+    {ok,Array} = getElementsByTagName(Ws, "head"),
+    {ok,Elem} = get(Ws, Array, 0),
     appendChild(Ws, Elem, Image),
     %% wait for image to load?
     {ok,Image}.

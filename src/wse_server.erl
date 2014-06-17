@@ -514,6 +514,23 @@ handle_mesg({start,M,F,As},_Socket,S0) ->
     _Pid = spawn_link(M,F,[self()|As]),
     ?debug("wse process ~w:~w/~w, started, pid=~p\n", [M,F,length(As),_Pid]),
     S0;
+handle_mesg({register,Name},_Socket,S0) ->
+    ?debug("register ~p\n", [Name]),
+    try register(Name,self()) of
+	true -> S0
+    catch
+	error:Reason ->
+	    ?info("register of ~p failed : ~s\n", [Name, Reason]),
+	    S0
+    end;
+handle_mesg({unregister}, _Socket, S0) ->
+    case process_info(self(), registered_name) of
+	[] -> S0;
+	{registered_name,Name} ->
+	    ?debug("unregister ~p\n", [Name]),
+	    catch (unregister(Name)),
+	    S0
+    end;
 handle_mesg({call,IRef,M,F,As},Socket,S0) ->
     %% maybe direct this to gen_server call on spawned processes?
     try apply(M,F,As) of
