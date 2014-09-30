@@ -79,7 +79,7 @@
     });
 }());
 
-var wse_console_debug = false;
+var wse_console_debug = true;
 //
 // window.onerror = function(message, url, line)
 //    console.low("window error was invoked with message = " +

@@ -42,6 +42,9 @@
 -export([getElementById/2]).
 -export([appendChild/3]).
 -export([load_image/2, load/2]).
+%% header items
+-export([header/1]).
+-export([header/2]).
 
 -compile(export_all).
 
@@ -122,9 +125,14 @@ rcall(Ws, Object, Method, This, Args) when is_list(Args) ->
 %% @end
 
 -spec get(Ws::wse(), Object::wse_object(), 
-	  Attribute::integer()|atom()|string())
+	  Attribute::integer()|atom()|string()|list())
 	 -> {ok,Value::term()} | {error,Reason::term()}.
 
+get(Ws, Object, [LeafAttribute]) when is_list(LeafAttribute) ->
+    get(Ws, Object, LeafAttribute);
+get(Ws, Object, [Attribute | SubAttributes]) when is_list(Attribute) ->
+    {ok, AttributeObject} = get(Ws, Object, Attribute),
+    get(Ws, AttributeObject, SubAttributes);
 get(Ws, Object, Attribute) ->
     rsync(Ws, {get, Object, Attribute}).
 
@@ -132,11 +140,16 @@ get(Ws, Object, Attribute) ->
 %%   Set attibute or array at index
 %% @end
 -spec set(Ws::wse(), Object::wse_object(), 
-	  Attribute::integer()|atom()|string(),
+	  Attribute::integer()|atom()|string()|list(),
 	  Value::term()) -> ok | {error,Reason::term()}.
 
+set(Ws, Object, [LeafAttribute], Value) when is_list(LeafAttribute) ->
+    rsync(Ws, {set, Object, LeafAttribute, Value});
+set(Ws, Object, [Attribute | SubAttributes], Value) when is_list(Attribute) ->
+    {ok, AttributeObject} = get(Ws, Object, Attribute),
+    set(Ws, AttributeObject, SubAttributes, Value);
 set(Ws, Object, Attribute, Value) ->
-    rsync(Ws, {set, Object, Attribute,Value}).
+    rsync(Ws, {set, Object, Attribute, Value}).
 
 %% @doc
 %%   Cast like call, but with no return value
@@ -374,6 +387,25 @@ load(Ws, Library) ->
     %% io:format("wait event = ~p\n", [_Result]),
     ok.
 
+header(Ws) ->
+    Ref = make_ref(),
+    Ws ! {header,[Ref|self()]},
+    receive
+	{reply, Ref, Reply} ->
+	    Reply
+    after 5000 ->
+	    {error,timeout}
+    end.
+    
+header(Ws, ItemName) ->
+    Ref = make_ref(),
+    Ws ! {header,ItemName, [Ref|self()]},
+    receive
+	{reply, Ref, Reply} ->
+	    Reply
+    after 5000 ->
+	    {error,timeout}
+    end.
 
 %% Sync and Async primitives	
 rsync(Ws, Command) ->

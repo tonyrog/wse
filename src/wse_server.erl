@@ -54,6 +54,7 @@
 	  protocol,     %% "Sec-WebSocket-Protocol"
 	  origin,       %% 
 	  version,      %% "Sec-WebSocket-Version"
+	  cookie,       %% 'Cookie'
 	  hs = []
 	}).
 
@@ -70,14 +71,15 @@
 	  type,                 %% ?WS_OP_TEXT|?WS_OP_BINARY
 	  fs   = [],            %% fragments
 	  wait = [],            %% #event
+	  header,               %% ws_header
 	  gc_table              %% ets table of objects
 	}).
 
 
 -define(log(F,W,As),
 	io:format("~s:~w: " ++ (W)++" "++(F)++"\n", [?MODULE, ?LINE | (As)])).	
-%% -define(debug(F,As), ?log(F,"debug",As)).
--define(debug(F,A), ok).
+-define(debug(F,As), ?log(F,"debug",As)).
+%%-define(debug(F,A), ok).
 -define(info(F,As),  ?log(F,"info", As)).
 -define(warn(F,As),  ?log(F,"warn", As)).
 -define(error(F,As), ?log(F,"error", As)).
@@ -206,6 +208,7 @@ ws_handshake(Socket, _Uri, Opts) ->
 		     type=Type,
 		     pingInterval=PingInterval,
 		     pongTimeout=PongTimeout,
+		     header = F,
 		     gc_table = ets:new(gc_table, [])
 		    },
 	    S1 = start_ping_timer(S0),
@@ -224,21 +227,24 @@ ws_recv_headers(S, F, Timeout) ->
 	    F;
 	{http, S, {http_header, _, K, _, V}} ->
 	    inet:setopts(S, [{active, once}]),
+	    %% Save all in hs
+	    F1 = F#ws_header { hs = [{K,V}|F#ws_header.hs]},
 	    case K of
 		'Host' ->
-		    ws_recv_headers(S, F#ws_header { host = V}, Timeout);
+		    ws_recv_headers(S, F1#ws_header { host = V}, Timeout);
 		'Upgrade' ->
-		    ws_recv_headers(S, F#ws_header { upgrade = V}, Timeout);
+		    ws_recv_headers(S, F1#ws_header { upgrade = V}, Timeout);
 		'Connection' ->
-		    ws_recv_headers(S, F#ws_header { connection = V}, Timeout);
+		    ws_recv_headers(S, F1#ws_header { connection = V}, Timeout);
 		"Sec-Websocket-Key" ->
-		    ws_recv_headers(S, F#ws_header { key = V}, Timeout);
+		    ws_recv_headers(S, F1#ws_header { key = V}, Timeout);
 		"Sec-Websocket-Protocol" ->
-		    ws_recv_headers(S, F#ws_header { protocol = V}, Timeout);
+		    ws_recv_headers(S, F1#ws_header { protocol = V}, Timeout);
 		"Sec-Websocket-Version" ->
-		    ws_recv_headers(S, F#ws_header { version = V}, Timeout);
+		    ws_recv_headers(S, F1#ws_header { version = V}, Timeout);
+		'Cookie' ->
+		    ws_recv_headers(S, F1#ws_header { cookie = V}, Timeout);
 		_ ->
-		    F1 = F#ws_header { hs = [{K,V}|F#ws_header.hs]},
 		    ws_recv_headers(S, F1, Timeout)
 	    end
     after Timeout ->
@@ -443,6 +449,21 @@ handle_local({create_event,From,How,Data},_Socket,S0) ->
     Wait1 = [Event|S0#s.wait],
     reply(Event, {ok, IRef}),
     {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
+
+handle_local({header, From},_Socket,S0=#s{header = Header}) ->
+    ?debug("header: all\n", []),    
+    reply(#event {from=From}, {ok, Header#ws_header.hs}),
+    {noreply,S0};
+
+handle_local({header, ItemName, From},_Socket,S0=#s{header = Header}) ->
+    ?debug("header: ~p\n", [ItemName]),    
+    case lists:keyfind(ItemName, 1, Header#ws_header.hs) of
+	{ItemName, ItemValue} ->
+	    reply(#event {from=From}, {ok, ItemValue});
+	false ->
+	    reply(#event {from=From}, {error, unknown_header_item})
+    end,
+    {noreply,S0};
 
 handle_local({timeout,Ref,ping},Socket,S0) when S0#s.ping_ref =:= Ref ->
     %% ping the browser!
