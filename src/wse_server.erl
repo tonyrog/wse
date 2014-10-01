@@ -78,8 +78,8 @@
 
 -define(log(F,W,As),
 	io:format("~s:~w: " ++ (W)++" "++(F)++"\n", [?MODULE, ?LINE | (As)])).	
--define(debug(F,As), ?log(F,"debug",As)).
-%%-define(debug(F,A), ok).
+%%-define(debug(F,As), ?log(F,"debug",As)).
+-define(debug(F,A), ok).
 -define(info(F,As),  ?log(F,"info", As)).
 -define(warn(F,As),  ?log(F,"warn", As)).
 -define(error(F,As), ?log(F,"error", As)).
