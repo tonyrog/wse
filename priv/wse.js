@@ -160,7 +160,7 @@ WseClass.prototype.decode_js = function(Data) {
     case "number": return Data;
     case "object":
 	if (Ei.eqAtom(Data, "true")) return true;
-	else if (Ei.eqAtom(Data, "false")) return true;
+	else if (Ei.eqAtom(Data, "false")) return false;
 	else if (Ei.eqAtom(Data, "null")) return null;
 	else if (Ei.isTupleSize(Data,2)) {
 	    var elem = Data.value;
