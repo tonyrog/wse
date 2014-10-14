@@ -164,8 +164,7 @@ WseClass.prototype.decode_js = function(Data) {
 	else if (Ei.eqAtom(Data, "null")) return null;
 	else if (Ei.isTupleSize(Data,2)) {
 	    var elem = Data.value;
-	    if (Ei.eqAtom(elem[0], "array") &&
-		(typeof(elem[1]) == "array")) {
+	    if (Ei.eqAtom(elem[0], "array") && Ei.isArray(elem[1])) {
 		var iArr = elem[1];
 		var arr = new Array();
 		var len, i;
@@ -173,8 +172,7 @@ WseClass.prototype.decode_js = function(Data) {
 		    arr[i] = this.decode_js(iArr[i]);
 		return arr;
 	    }
-	    else if (Ei.eqAtom(elem[0],"struct") &&
-		     (typeof(elem[1]) == "array")) {
+	    else if (Ei.eqAtom(elem[0],"struct") && Ei.isArray(elem[1])) {
 		var iArr = elem[1];
 		var obj = new Object();
 		var len, i;
