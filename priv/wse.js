@@ -185,7 +185,19 @@ WseClass.prototype.decode_js = function(Data) {
 		}
 		return obj;
 	    }
+	    else {
+		this.console.debug("unable to decode pair " + Data);
+		return null;
+	    }
 	}
+	else {
+	    this.console.debug("unable to decode object " + Data);
+	    return null;
+	}
+	break;
+    default:
+	this.console.debug("unable to decode data " + Data);
+	return null;
     }
 };
 
