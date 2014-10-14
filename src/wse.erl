@@ -45,6 +45,8 @@
 %% header items
 -export([header/1]).
 -export([header/2]).
+-export([session_header/0]).
+-export([session_header/1]).
 
 -compile(export_all).
 
@@ -387,7 +389,7 @@ load(Ws, Library) ->
     %% io:format("wait event = ~p\n", [_Result]),
     ok.
 
-header(Ws) ->
+header(Ws) when is_pid(Ws) ->
     Ref = make_ref(),
     Ws ! {header,[Ref|self()]},
     receive
@@ -397,7 +399,7 @@ header(Ws) ->
 	    {error,timeout}
     end.
     
-header(Ws, ItemName) ->
+header(Ws, ItemName) when is_pid(Ws) ->
     Ref = make_ref(),
     Ws ! {header,ItemName, [Ref|self()]},
     receive
@@ -405,6 +407,24 @@ header(Ws, ItemName) ->
 	    Reply
     after 5000 ->
 	    {error,timeout}
+    end.
+
+session_header() ->
+    %% Header stored in process dictionary
+    get(header).
+
+session_header(ItemName) ->
+    case get(header) of
+	undefined ->
+	    %% or crash??
+	    {error, no_header};
+	Header ->
+	    case lists:keyfind(ItemName, 1, Header) of
+		{ItemName, ItemValue} ->
+		    {ok, ItemValue};
+		false ->
+		    {error, unknown_header_item}
+	    end
     end.
 
 %% Sync and Async primitives	

@@ -204,6 +204,8 @@ ws_handshake(Socket, _Uri, Opts) ->
 		       binary -> ?WS_OP_BINARY;
 		       text -> ?WS_OP_TEXT
 		   end,
+	    %% Store header in process dictionary for direct access
+	    put(header, F#ws_header.hs),
 	    S0 = #s {proto=WsProto,
 		     type=Type,
 		     pingInterval=PingInterval,
