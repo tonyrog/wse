@@ -152,6 +152,45 @@ WseClass.prototype.decode = function(Data) {
     return Ei.decode(Data, 0);
 };
 
+// Decide an Erlang term that represent a json object into a
+// native json object i.e {struct,[{a,1},{b,2}]} => { a:1, b:2 }
+WseClass.prototype.decode_js = function(Data) {
+    switch(typeof(Data)) {
+    case "string": return Data;
+    case "number": return Data;
+    case "object":
+	if (Ei.eqAtom(Data, "true")) return true;
+	else if (Ei.eqAtom(Data, "false")) return true;
+	else if (Ei.eqAtom(Data, "null")) return null;
+	else if (Ei.isTupleSize(Data,2)) {
+	    var elem = Data.value;
+	    if (Ei.eqAtom(elem[0], "array") &&
+		(typeof(elem[1]) == "array")) {
+		var iArr = elem[1];
+		var arr = new Array();
+		var len, i;
+		for (i = 0; i < iArr.length; i++)
+		    arr[i] = this.decode_js(iArr[i]);
+		return arr;
+	    }
+	    else if (Ei.eqAtom(elem[0],"struct") &&
+		     (typeof(elem[1]) == "array")) {
+		var iArr = elem[1];
+		var obj = new Object();
+		var len, i;
+		for (i = 0; i < iArr.length; i++) {
+		    if (Ei.isTupleSize(iArr[i],2)) {
+			var pair = iArr[i].value;
+			if (typeof(pair[0]) == "string")
+			    obj[pair[0]] = this.decode_js(pair[1]);
+		    }
+		}
+		return obj;
+	    }
+	}
+    }
+};
+
 WseClass.prototype.open = function(url) {
     var wse = this;  // save WebSocket closure
 
