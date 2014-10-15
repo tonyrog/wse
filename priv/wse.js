@@ -190,6 +190,13 @@ WseClass.prototype.decode_js = function(Data) {
 		return null;
 	    }
 	}
+	else if (Ei.isArray(Data)) {
+	    var arr = new Array();
+	    var len, i;
+	    for (i = 0; i < Data.length; i++)
+		    arr[i] = this.decode_js(Data[i]);
+		return arr
+	}
 	else {
 	    this.console.debug("unable to decode object " + Data);
 	    return null;
