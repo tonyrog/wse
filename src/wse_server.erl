@@ -23,7 +23,7 @@
 
 -module(wse_server).
 
--export([start/0, start/1, start/2]).
+-export([start/0, start/1, start/2, stop/1]).
 -export([ws_loop/3]).
 
 -compile(export_all).
@@ -99,33 +99,58 @@ start(Port,Opts) when is_integer(Port) -> start_([{port,Port}|Opts]).
 
 start_(Opts) -> spawn(fun() -> init(Opts) end).
 
+stop(RegName) when is_atom(RegName) ->
+    RegName ! stop.
+
+ 
 init(Opts) ->
     Port = proplists:get_value(port, Opts, ?WSE_DEFAULT_PORT),
+
+    case proplists:get_value(name, Opts) of
+	undefined -> ok;
+	Name -> register(Name, self())
+    end,
     Addr = proplists:get_value(ifaddr, Opts, any),
     {ok, Listen} = gen_tcp:listen(Port,
 				  [{packet,http},{reuseaddr,true},
 				   {ifaddr, Addr},
 				   {mode, binary}, {active, once}]),
+    process_flag(trap_exit, true),
     listen_loop(Listen,Opts).
 
 listen_loop(Listen,Opts) ->
+    ?debug("Listen loop ~p\n", [Listen]),
     Parent = self(),
-    {Pid,Mon} = spawn_monitor(fun() -> accept(Parent, Listen, Opts) end),
+    Pid = spawn_link(fun() -> accept(Parent, Listen, Opts) end),
+    ?MODULE:accept_loop(Listen,Opts,Pid).
+
+accept_loop(Listen,Opts,Pid) ->
+    ?debug("Accept loop ~p\n", [Listen]),
     receive
 	{Pid,ok} ->
-	    erlang:demonitor(Mon, [flush]),
 	    ?MODULE:listen_loop(Listen,Opts);
-	{'DOWN',Mon,process,Pid,Reason} ->
-	    ?warn("process crashed: ~p\n", [Reason]),
-	    ?MODULE:listen_loop(Listen,Opts)
+	{Pid,Error} ->
+	    ?warn("process ~p error: ~p\n", [Pid, Error]),
+	    ?MODULE:listen_loop(Listen,Opts);
+	{'EXIT',Pid,Reason} ->
+	    ?warn("process ~p crashed: ~p\n", [Pid, Reason]),
+	    ?MODULE:listen_loop(Listen,Opts);
+	{'EXIT',OtherPid,Reason} ->
+	    ?warn("other process ~p crashed: ~p\n", [OtherPid, Reason]),
+	    ?MODULE:accept_loop(Listen, Opts, Pid);
+	stop ->
+	    gen_tcp:close(Listen),
+	    exit(stopped)
     end.
     
 accept(Parent, Listen, Opts) ->
-    process_flag(trap_exit, true),
+    ?debug("Accept ~p\n", [Listen]),
     case gen_tcp:accept(Listen) of
 	{ok, Socket} ->
 	    ?debug("Connected to ~p\n", [inet:peername(Socket)]),
 	    Parent ! {self(), ok},
+	    process_flag(trap_exit, true),
+	    put(parent, Parent),
 	    ?MODULE:ws_handshake(Socket,Opts);
 	Error ->
 	    Parent ! {self(), Error}
@@ -289,9 +314,15 @@ ws_loop(Buf, Socket, S) ->
 	    lists:foreach(fun(E) -> reply(E, {error,closed}) end, S#s.wait),
 	    exit(closed);
 
-	{'EXIT',_Pid,_Reason} ->
-	    ?debug("exit from ~w reason=~p\n", [_Pid, _Reason]),
-	    ws_loop(Buf, Socket, S);
+	{'EXIT',Pid,Reason} ->
+	    case get(parent) of
+		Pid -> 
+		    ?debug("exit from parent ~w reason=~p\n", [Pid, Reason]),
+		    exit(Reason);
+		_ ->
+		    ?debug("exit from ~w reason=~p\n", [Pid, Reason]),
+		    ws_loop(Buf, Socket, S)
+	    end;
 
 	{collect,ID} ->
 	    case ets:update_counter(S#s.gc_table, ID, -1) of
