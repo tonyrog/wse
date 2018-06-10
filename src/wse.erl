@@ -21,6 +21,8 @@
 
 -module(wse).
 
+-export([start/0]).
+
 -export([call/4, call/5]).
 -export([rcall/4, rcall/5]).
 -export([get/3, set/4]).
@@ -64,6 +66,13 @@
 -type ehtml() :: atom() | string() | integer() |
 		 {Tag::html_tag(),[html_attr()]} |
 		 {Tag::html_tag(),[html_attr()],[ehtml()]}.
+
+start() ->
+    wse_server:start().
+
+start(Args) ->
+    wse_server:start(Args).
+
 
 id(ID) when is_atom(ID) ->
     {object, ID};
