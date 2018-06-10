@@ -79,7 +79,7 @@
     });
 }());
 
-var wse_console_debug = true;
+var wse_console_debug = false;
 //
 // window.onerror = function(message, url, line)
 //    console.low("window error was invoked with message = " +
@@ -348,7 +348,7 @@ WseClass.prototype.decode_value = function(Obj) {
 	    }
 	    // this is a garbage collected version {object,num,res-bin}
 	    if ((elem.length==3) && Ei.eqAtom(elem[0],"object")) {
-		if ((typeof(elem[1]) == "number") && Ei.isBinary(elem[2])) {
+		if ((typeof(elem[1]) == "number") && Ei.isReference(elem[2])) {
 		    return this.lookup_object(elem[1]);
 		}
 		return undefined;
@@ -360,7 +360,7 @@ WseClass.prototype.decode_value = function(Obj) {
 	    }
 	    // this is a garbage collected version {function,num,res-bin}
 	    if ((elem.length==3) && Ei.eqAtom(elem[0],"function")) {
-		if ((typeof(elem[1]) == "number") && Ei.isBinary(elem[2])) {
+		if ((typeof(elem[1]) == "number") && Ei.isReference(elem[2])) {
 		    return this.lookup_object(elem[1]);
 		}
 		return undefined;

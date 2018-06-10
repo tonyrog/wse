@@ -29,6 +29,9 @@ function EiClass() {
     this.LARGE_BIG = 111;
     this.FLOAT = 99;
     this.NEW_FLOAT = 70;
+    this.REFERENCE = 101;
+    this.NEW_REFERENCE = 114;
+    this.NEWER_REFERENCE = 90;
     this.STRING = 107;
     this.LIST = 108;
     this.SMALL_TUPLE = 104;
@@ -89,6 +92,23 @@ function EiTuple(Arr) {
     };
 };
 
+function EiReference(Sys,Refs,Creation) {
+    var i;
+    this.type   = "Reference";
+    this.length = Refs.length;
+    this.value  = [Sys,Refs,Creation];
+    this.toString = function () {
+	var i, s = "", refs=this.value[1];
+	for (i = 0; i < refs.length; i++) {
+	    if (s !== "") {
+		s += ".";
+	    }
+	    s += refs[i].toString();
+	}
+	return "#Ref<" + s + ">";
+    };
+};
+
 // - INTERFACE -
 
 EiClass.prototype.isAtom = function (Obj) {
@@ -108,6 +128,10 @@ EiClass.prototype.isTuple = function(Obj) {
     return (typeof(Obj) == "object") &&	(Obj.type == "Tuple");
 };
 
+EiClass.prototype.isReference = function(Obj) {
+    return (typeof(Obj) == "object") &&	(Obj.type == "Reference");
+};
+
 EiClass.prototype.isTupleSize = function(Obj,n) {
     return (typeof(Obj) == "object") &&	(Obj.type == "Tuple") &&
 	(Obj.length == n);
@@ -122,7 +146,6 @@ EiClass.prototype.binary_size = function (Obj) {
     return 0;
 };
 
-
 EiClass.prototype.atom = function (Obj) {
     return new EiAtom(Obj);
 };
@@ -133,6 +156,10 @@ EiClass.prototype.binary = function (Obj) {
 
 EiClass.prototype.tuple = function () {
     return new EiTuple([].splice.call(arguments,0));
+};
+
+EiClass.prototype.reference = function (Sys,Refs,Creation) {
+    return new EiReference(Sys,Refs,Creation);
 };
 
 // byte_size_xxx
@@ -180,6 +207,9 @@ EiClass.prototype.byte_size_term = function (Obj) {
 	case 'Tuple':
 	    Size = this.byte_size_tuple(Obj);
 	    break;
+	case 'Reference':
+	    Size = this.byte_size_reference(Obj);
+	    break;
 	default:
 	    if (Obj.constructor.toString().indexOf("Array") !== -1)
 		Size = this.byte_size_array(Obj);
@@ -199,6 +229,23 @@ EiClass.prototype.atom_size = function (Name) {
 	return 1+Name.length;
     else
 	return 2+Name.length;
+}
+
+EiClass.prototype.byte_size_reference = function (Obj) {
+    var Sys  = Obj.value[0];
+    var Refs = Obj.value[1];
+    var Creation = Obj.value[2];
+    var SysSize = 1 + this.atom_size(Sys);
+    
+    if (Refs.length > 1) {
+	if (Creation > 3)
+	    Size = 2 + SysSize + Refs.length*4 + 4;
+	else
+	    Size = 2 + SysSize + Refs.length*4 + 1;
+    }
+    else
+	SysSize + 4 + 1;
+    return Size;
 }
 
 EiClass.prototype.byte_size_tuple = function (Obj) {
@@ -330,7 +377,6 @@ EiClass.prototype.encode_term = function (Obj,dv,pos) {
 	case 'Atom':
 	    pos = this.encode_atom_string(Obj.value,dv,pos);
 	    break;
-
 	case 'Binary': { // Obj.value MUST be an Uint8Array!
 	    var i, len = Obj.value.byteLength;
 	    dv.setUint8(pos, this.BINARY);
@@ -340,7 +386,51 @@ EiClass.prototype.encode_term = function (Obj,dv,pos) {
 		dv.setUint8(pos, Obj.value[i]);
 	    break;
 	}
-
+	case 'Reference': {
+	    var Sys  = Obj.value[0];
+	    var Refs = Obj.value[1];
+	    var Creation = Obj.value[2];
+	    var i;
+	    
+	    if (Refs.length > 1) {
+		if (Creation > 3) {
+		    dv.setUint8(pos, this.NEWER_REFERENCE);
+		    pos += 1;
+		    dv.setUint16(pos, Refs.length);
+		    pos += 2;
+		    pos = this.encode_atom_string(Sys,dv,pos);
+		    for (i=0; i < Refs.length; i++) {
+			dv.setUint32(pos, Refs[i]);
+			pos += 4;
+		    }
+		    dv.setUint32(pos, Creation);
+		    pos += 4;
+		}
+		else {
+		    dv.setUint8(pos, this.NEW_REFERENCE);
+		    pos += 1;
+		    dv.setUint16(pos, Refs.length);
+		    pos += 2;
+		    pos = this.encode_atom_string(Sys,dv,pos);
+		    for (i=0; i < Refs.length; i++) {
+			dv.setUint32(pos, Refs[i]);
+			pos += 4;
+		    }
+		    dv.setUint8(pos, Creation);
+		    pos += 1;
+		}
+	    }
+	    else {
+		dv.setUint8(pos, this.REFERENCE);
+		pos += 1;
+		pos = this.encode_atom_string(Sys,dv,pos);
+		dv.setUint32(pos, Refs[0]);
+		pos += 32;
+		dv.setUint8(pos, Creation);
+		pos += 1;
+	    }
+	    break;
+	}
 	case 'Tuple':
 	    pos = this.encode_tuple(Obj,dv,pos);
 	    break;
@@ -480,6 +570,14 @@ EiClass.prototype.decode_size_term = function (dv,pos) {
     case this.LARGE_BIG: L = 4+dv.getUint32(pos,false); break;
     case this.FLOAT:	L = 31; break;
     case this.NEW_FLOAT: L = 8; break;
+    case this.REFERENCE:
+	L = this.decode_size_term(dv,pos)+4+1; break;
+    case this.NEW_REFERENCE:
+	L = 2+this.decode_size_term(dv,pos+2)+dv.getUint16(pos,false)*4+1;
+	break;
+    case this.NEWER_REFERENCE:
+	L = 2+this.decode_size_term(dv,pos+2)+dv.getUint16(pos,false)*4+4;
+	break;
     case this.STRING: L = 2+dv.getUint16(pos,false); break;
     case this.LIST:
 	L = this.decode_size_seq(dv,pos+4,dv.getUint32(pos,false)+1,4);
@@ -524,7 +622,7 @@ EiClass.prototype.decode_term = function (dv,pos) {
     var R,Tag = dv.getUint8(pos++);
 
     switch (Tag) {
-    case this.NIL: 
+    case this.NIL:
 	R = []; break;
     case this.SMALL_ATOM:
 	R = this.decode_atom_bytes(dv,pos+1,dv.getUint8(pos)); break;
@@ -536,7 +634,7 @@ EiClass.prototype.decode_term = function (dv,pos) {
 	R = dv.getUint8(pos); break;
     case this.INTEGER:
 	R = dv.getInt32(pos,false); break;
-    case this.SMALL_BIG:	
+    case this.SMALL_BIG:
 	R = this.decode_big_bytes(dv,pos+1,dv.getUint8(pos)); break;
     case this.LARGE_BIG:
 	R = this.decode_big_bytes(dv,pos+4,dv.getUint32(pos,false)); break;
@@ -544,6 +642,12 @@ EiClass.prototype.decode_term = function (dv,pos) {
 	R = parseFloat(this.bytes_to_string(dv,pos,31)); break;
     case this.NEW_FLOAT:
 	R = dv.getFloat64(pos, false); break;
+    case this.REFERENCE:
+	R = this.decode_ref(dv,pos); break;
+    case this.NEW_REFERENCE:
+	R = this.decode_new_ref(dv,pos); break;
+    case this.NEWER_REFERENCE:
+	R = this.decode_newer_ref(dv,pos); break;
     case this.STRING:
 	R = this.bytes_to_string(dv,pos+2,dv.getUint16(pos,false)); break;
     case this.LIST:
@@ -584,6 +688,51 @@ EiClass.prototype.decode_big_bytes = function (dv,pos,len) {
 	return Num;
     }
     throw ("bad number");
+};
+
+// system/atom, ref:18, creation:8
+EiClass.prototype.decode_ref = function (dv,pos) {
+    var Sys, Creation, Ref;
+    
+    Sys = this.decode_term(dv,pos);
+    pos += this.decode_size_term(dv,pos);
+    Ref = dv.getUint32(pos,false);
+    Creation = dv.getUint8(pos+4);
+    return new EiReference(Sys,[Ref],Creation);
+};
+
+// NumRefs:16, system/atom, Ref0:32,..RefN-1:32., creation:8
+EiClass.prototype.decode_new_ref = function (dv,pos) {
+    var n, Sys, Creation, Refs = [], i;
+
+    n = dv.getUint16(pos,false);
+    pos += 2;
+    Sys = this.decode_term(dv,pos);
+    pos += this.decode_size_term(dv,pos);
+    for (i = 0; i < n; i++) {
+	var Ref = dv.getUint32(pos,false);
+	Refs.push(Ref);
+	pos += 4;
+    }
+    Creation = dv.getUint8(pos);
+    return new EiReference(Sys,Refs,Creation);
+};
+
+// NumRefs:16, system/atom, Ref0:32,..RefN-1:32., creation:32
+EiClass.prototype.decode_newer_ref = function (dv,pos) {
+    var n, Sys, Creation, Refs = [], i;
+
+    n = dv.getUint16(pos,false);
+    pos += 2;
+    Sys = this.decode_term(dv,pos);
+    pos += this.decode_size_term(dv,pos);
+    for (i = 0; i < n; i++) {
+	var Ref = dv.getUint32(pos,false);
+	Refs.push(Ref);
+	pos += 4;
+    }
+    Creation = dv.getUint32(pos,false);
+    return new EiReference(Sys,Refs,Creation);
 };
 
 //
