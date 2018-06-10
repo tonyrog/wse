@@ -135,8 +135,8 @@ accept_loop(Listen,Opts,Pid) ->
 	{'EXIT',Pid,Reason} ->
 	    ?warn("process ~p crashed: ~p\n", [Pid, Reason]),
 	    ?MODULE:listen_loop(Listen,Opts);
-	{'EXIT',OtherPid,Reason} ->
-	    ?warn("other process ~p crashed: ~p\n", [OtherPid, Reason]),
+	{'EXIT',_OtherPid,_Reason} ->
+	    ?debug("other process ~p crashed: ~p\n", [_OtherPid, _Reason]),
 	    ?MODULE:accept_loop(Listen, Opts, Pid);
 	stop ->
 	    gen_tcp:close(Listen),
