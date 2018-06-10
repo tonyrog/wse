@@ -423,7 +423,7 @@ ws_make_server_frame(Payload0,Type) ->
 
 ws_make_client_frame(Payload0,Type) ->
     Fin = 1,
-    M = crypto:rand_bytes(4),
+    M = crypto:strong_rand_bytes(4),
     Payload = ws_mask(M, Payload0),
     ws_make_frame(Fin,Type,M,Payload).
 
@@ -500,7 +500,7 @@ handle_local({header, ItemName, From},_Socket,S0=#s{header = Header}) ->
 
 handle_local({timeout,Ref,ping},Socket,S0) when S0#s.ping_ref =:= Ref ->
     %% ping the browser!
-    PingData = crypto:rand_bytes(4),
+    PingData = crypto:strong_rand_bytes(4),
     %% ?debug("sending ping ~p\n", [PingData]),
     Frame = ws_make_server_frame(<<PingData/binary>>,?WS_OP_PING),
     gen_tcp:send(Socket, Frame),
