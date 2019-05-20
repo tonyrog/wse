@@ -38,6 +38,7 @@ run(Ws, Where) ->
 	      %% io:format("loaded: ~s\n", [File]),
 	      Image
 	  end ||  I <- lists:seq(1,23)],
+    timer:sleep(100),
     Image = wse:createElement(Ws, "img"),
     Parent = wse:id(Where),
     wse:appendChild(Ws, Parent, Image),
