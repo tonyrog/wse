@@ -29,18 +29,16 @@
 
 run(Ws, Where) ->
     io:format("fish_demo: called\n"),
+    Parent = wse:id(Where),
     %% "preload" fish images
-    Fishes =
+    Files =
 	[ begin
 	      FNo = tl(integer_to_list(10000+I)),
-	      File = "fish/fish"++FNo++".png",
-	      {ok,Image} = wse:load_image(Ws, File),
-	      %% io:format("loaded: ~s\n", [File]),
-	      Image
+	      "fish/fish"++FNo++".png"
 	  end ||  I <- lists:seq(1,23)],
-    timer:sleep(100),
+    %% io:format("Loading file ~s\n", [File]),
+    {ok,Fishes} = wse:load_images(Ws, Parent, Files),
     Image = wse:createElement(Ws, "img"),
-    Parent = wse:id(Where),
     wse:appendChild(Ws, Parent, Image),
     update_loop(Ws, Image, Fishes, Fishes).
 

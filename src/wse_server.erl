@@ -23,6 +23,7 @@
 
 -module(wse_server).
 
+-export([start_link/1]).
 -export([start/0, start/1, start/2, stop/1]).
 -export([ws_loop/3]).
 
@@ -97,15 +98,17 @@ start([AtomPort]) when is_atom(AtomPort) ->
 
 start(Port,Opts) when is_integer(Port) -> start_([{port,Port}|Opts]).
 
-start_(Opts) -> spawn(fun() -> init(Opts) end).
+start_(Opts) -> 
+    {ok, spawn(fun() -> init(Opts) end)}.
+
+start_link(Opts) ->
+    {ok, spawn_link(fun() -> init(Opts) end)}.
 
 stop(RegName) when is_atom(RegName) ->
     RegName ! stop.
 
- 
 init(Opts) ->
     Port = proplists:get_value(port, Opts, ?WSE_DEFAULT_PORT),
-
     case proplists:get_value(name, Opts) of
 	undefined -> ok;
 	Name -> register(Name, self())

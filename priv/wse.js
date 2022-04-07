@@ -79,7 +79,7 @@
     });
 }());
 
-var wse_console_debug = false;
+var wse_console_debug = true;
 //
 // window.onerror = function(message, url, line)
 //    console.low("window error was invoked with message = " +
@@ -564,6 +564,9 @@ WseClass.prototype.dispatch = function (Request) {
 	    var objb = this.decode_value(argv[3]);
 	    var args = this.decode_value(argv[4]);
 	    var val;
+
+	    this.console.debug("obja = " + obja);
+	    this.console.debug("meth = " + meth);
 
 	    try {
 		val  = (obja[meth]).apply(objb, args);

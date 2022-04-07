@@ -22,6 +22,7 @@
 -module(wse).
 
 -export([start/0]).
+-export([start_link/1]).
 
 -export([call/4, call/5]).
 -export([rcall/4, rcall/5]).
@@ -38,12 +39,17 @@
 -export([array/1]).
 -export([create_event/1, create_event/3]).
 -export([wait_event/2]).
+-export([wait_events/2]).
 -export([createElement/2]).
 -export([createTextNode/2]).
 -export([getElementsByTagName/2]).
 -export([getElementById/2]).
 -export([appendChild/3]).
--export([load_image/2, load/2]).
+-export([setStyle/3]).
+-export([load/2]).
+-export([load_image_sync/2]).
+-export([load_image/2, load_image/3]).
+-export([load_images/2, load_images/3]).
 %% header items
 -export([header/1]).
 -export([header/2]).
@@ -51,6 +57,9 @@
 -export([session_header/1]).
 
 -compile(export_all).
+
+%% -define(dbg(F,A), io:format((F),(A))).
+-define(dbg(F,A), ok).
 
 -type void() :: ok.
 -type wse_object() :: {object, atom()|string()|integer()}.
@@ -68,11 +77,10 @@
 		 {Tag::html_tag(),[html_attr()],[ehtml()]}.
 
 start() ->
-    wse_server:start().
+    application:ensure_all_started(wse).
 
-start(Args) ->
-    wse_server:start(Args).
-
+start_link(Args) ->
+    wse_server:start_link(Args).
 
 id(ID) when is_atom(ID) ->
     {object, ID};
@@ -268,6 +276,27 @@ wait_event(ID,Timeout) ->
     after Timeout ->
 	    {error,timeout}
     end.
+
+%% @doc
+%%  Wait for multiple events sent from java script.
+%%  Reply will contain both the local data installed with the
+%%  event it self, and the data sent by java script, as a pair.
+%% @end
+-spec wait_events(ID::[wse_event()], Timeout::timeout()) ->
+	  {ok,[{ID::wse_event(),{Local::term(), Remote::term()}}]}.
+
+wait_events(IDs,Timeout) ->
+    wait_events_(IDs,Timeout,[]).
+
+wait_events_([ID|IDs],Timeout,Acc) ->
+    receive
+	{notify,ID,Local,Remote} ->
+	    wait_events_(IDs,Timeout,[{ID,{Local,Remote}}|Acc])
+    after Timeout ->
+	    {error,timeout}
+    end;
+wait_events_([],_Timeout,Acc) ->
+    {ok, lists:reverse(Acc)}.
 			
 %% Short cuts to DOM access
 
@@ -292,6 +321,14 @@ createElement(Ws, Name) ->
 -spec createTextNode(Ws::wse(), Text::string()) -> wse_object().
 createTextNode(Ws, Text) ->
     {ok,E} = call(Ws, document(), createTextNode, [Text]),
+    E.
+
+%% 
+%% Set attribute values (FIXME, need special call)
+%%
+-spec setStyle(Ws::wse(), Obj::wse_object(), Value::string()) -> ok.
+setStyle(Ws, Obj, Value) ->
+    {ok,E} = call(Ws, Obj, setAttribute, ["style", Value]),
     E.
 
 %% @doc
@@ -355,23 +392,119 @@ nextSibling(Ws, Object) ->
     get(Ws, Object, nextSibling).
 
 %% @doc
-%%   Load an image into the document and return 
+%%   Load an image into the document head and return 
 %%   image the object.
 %% @end
--spec load_image(Ws::wse(), Src::url()) ->
+-spec load_image_sync(Ws::wse(), Src::url()) ->
     {ok,Image::wse_object()}.
 
-load_image(Ws, Src) ->
+load_image_sync(Ws, Src) ->
     Image = createElement(Ws, "img"),
-    set(Ws, Image, "src", Src),
-    {ok,Style} = wse:get(Ws, Image, "style"),
-    set(Ws, Style, "display", "none"),
-    %% set(Ws, Image, "type", "image/jpeg");
-    {ok,Array} = getElementsByTagName(Ws, "head"),
-    {ok,Elem} = get(Ws, Array, 0),
-    appendChild(Ws, Elem, Image),
+    wait_complete(Ws, Image, Src),
+    setStyle(Ws, Image, "display:none"),
+    {ok,Heads} = getElementsByTagName(Ws, "head"),
+    {ok,Head} = get(Ws, Heads, 0),
+    appendChild(Ws, Head, Image),
     %% wait for image to load?
     {ok,Image}.
+
+
+%% load multiple images and wait for them all
+load_images(Ws, Files) ->
+    {ok,Heads} = getElementsByTagName(Ws, "head"),
+    {ok,Head} = get(Ws, Heads, 0),
+    load_images(Ws, Head, Files).
+
+load_images(Ws, Parent, Files) ->
+    IDList =
+	[begin
+	     Image = createElement(Ws, "img"),
+	     setStyle(Ws, Image, "display:none"),	 
+	     ID = init_image_onload(Ws, Parent, Image, Src),
+	     {ID, Image} 
+	 end || Src <- Files],
+    {ok,_} = wait_events([ID || {ID,_} <- IDList], 5000),
+    lists:foreach(
+      fun({_ID, Image}) ->
+	      appendChild(Ws, Parent, Image)
+      end, IDList),
+    {ok, [Image || {_,Image} <- IDList]}.
+    
+%% @doc
+%%   Load an image into the document head and return 
+%%   image the object. Using event handler and onload
+%% @end
+-spec load_image(Ws::wse(), Src::url()) ->
+	  {ok,Image::wse_object()}.
+
+load_image(Ws, Src) ->
+    {ok,Heads} = getElementsByTagName(Ws, "head"),
+    {ok,Head} = get(Ws, Heads, 0),
+    load_image(Ws, Head, Src).
+
+-spec load_image(Ws::wse(), Parent::wse_object(), Src::url()) ->
+	  {ok,Image::wse_object()}.
+%% Load image into a child (like a div tag)
+load_image(Ws, Parent, Src) ->
+    Image = createElement(Ws, "img"),
+    setStyle(Ws, Image, "display:none"),
+    case wait_image_loaded(Ws, Parent, Image, Src, 5000) of
+	{ok, _} ->
+	    appendChild(Ws, Parent, Image),
+	    {ok, Image};
+	Error -> 
+	    Error
+    end.
+
+wait_image_loaded(Ws, Parent, Image, Src, Timeout) ->
+    ID = init_image_onload(Ws, Parent, Image, Src),
+    wait_event(ID, Timeout).
+
+init_image_onload(Ws, Parent, Image, Src) ->
+    {ok,ID} = create_event(Ws),
+    {ok,LoadedScript} = make_notify_script(Ws,Parent,ID),
+    set(Ws, Image, onload, LoadedScript),
+    set(Ws, Image, "src", Src),
+    ID.
+
+%% Create Wse.notify loaded script
+make_notify_script(Ws,Parent,ID) ->
+    LoadedScript = createElement(Ws, "script"),
+    Text = createTextNode(Ws,"Wse.notify("++integer_to_list(ID)++",'loaded');"),
+    appendChild(Ws, LoadedScript, Text),
+    %% Append script's in head element
+    appendChild(Ws, Parent, LoadedScript),
+    {ok,LoadedScript}.
+
+
+wait_complete(Ws, Image, Src) ->
+    wait_complete(Ws, Image, Src, 100, 10).
+
+wait_complete(Ws, Image, Src, CheckTmo) ->
+    wait_complete(Ws, Image, Src, CheckTmo, 3).
+
+wait_complete(Ws, Image, Src, CheckTmo, NumberOfChecks) ->
+    set(Ws, Image, "src", Src),
+    wait_complete_(Ws, Image, CheckTmo, NumberOfChecks).
+
+wait_complete_(_Ws, _Image, _CheckTmo, 0) ->
+    {error, timeout};
+wait_complete_(Ws, Image, CheckTmo, I) ->
+    %% io:format("complete: ~w\n", [I]),
+    case get(Ws, Image, complete) of
+	{ok,true} ->
+	    case get(Ws, Image, naturalWidth) of
+		{ok,0} -> 
+		    io:format("width=0 (wait)\n", []),
+	    	    wait_complete_(Ws, Image, CheckTmo, I-1);
+		{ok,_Width} ->
+		    %% io:format("width=~w\n", [_Width]),
+		    {ok, Image}
+	    end;
+	{ok,false} ->
+	    timer:sleep(CheckTmo),
+	    wait_complete_(Ws, Image, CheckTmo, I-1)
+    end.
 
 %% @doc
 %%   Load a java script library, and wait for it to load.
@@ -439,24 +572,30 @@ session_header(ItemName) ->
 %% Sync and Async primitives	
 rsync(Ws, Command) ->
     Ref = make_ref(),
+    ?dbg("rsync command ~p\n", [Command]),
     Ws ! {rsync,[Ref|self()],Command},
     receive
 	{reply, Ref, Reply} ->
+	    ?dbg("rsync reply ~p\n", [Reply]),
 	    Reply
     end.
 
 dsync(Ws, Command) ->
     Ref = make_ref(),
+    ?dbg("dsync command ~p\n", [Command]),
     Ws ! {dsync,[Ref|self()],Command},
     receive
 	{reply, Ref, Reply} ->
+	    ?dbg("dsync reply ~p\n", [Reply]),
 	    Reply
     end.
 
 nsync(Ws, Command) ->
     Ref = make_ref(),
+    ?dbg("nsync command ~p\n", [Command]),
     Ws ! {nsync,[Ref|self()],Command}.
 
 async(Ws, Command) ->
     Ref = make_ref(),
+    ?dbg("async command ~p\n", [Command]),
     Ws ! {async,[Ref|self()],Command}.

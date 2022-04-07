@@ -30,7 +30,8 @@
 %%
 run(Ws, Where) ->
     io:format("raphael_demo: called\n"),
-    ok = wse:load(Ws, "raphael-min.js"),
+    %% ok = wse:load(Ws, "raphael.min.js"),
+    ok = wse:load(Ws, "raphael-2.3.0/raphael.js"),
     {ok,Paper} = raphael:new(Ws, Where, 640, 540),
 
     %% must create the image element here!

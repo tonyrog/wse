@@ -1,7 +1,9 @@
 {application, wse,
  [{description, "Erlang web socket server"},
   {vsn, git},
-  {registered, []},
+  {modules, ["@@MODULES@@"]},
+  {mod, {wse_app, []}},
+%%  {registered, [App_srv]},
   {env, []},
   {applications,[kernel,stdlib]}
   ]}.
