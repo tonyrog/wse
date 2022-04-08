@@ -50,6 +50,8 @@
 -export([load_image_sync/2]).
 -export([load_image/2, load_image/3]).
 -export([load_images/2, load_images/3]).
+-export([load_video/4, load_video/5]).
+
 %% header items
 -export([header/1]).
 -export([header/2]).
@@ -147,9 +149,11 @@ rcall(Ws, Object, Method, This, Args) when is_list(Args) ->
 	  Attribute::integer()|atom()|string()|list())
 	 -> {ok,Value::term()} | {error,Reason::term()}.
 
-get(Ws, Object, [LeafAttribute]) when is_list(LeafAttribute) ->
+get(Ws, Object, [LeafAttribute]) when is_list(LeafAttribute);
+				      is_atom(LeafAttribute) ->
     get(Ws, Object, LeafAttribute);
-get(Ws, Object, [Attribute | SubAttributes]) when is_list(Attribute) ->
+get(Ws, Object, [Attribute | SubAttributes]) when is_list(Attribute);
+						  is_atom(Attribute) ->
     {ok, AttributeObject} = get(Ws, Object, Attribute),
     get(Ws, AttributeObject, SubAttributes);
 get(Ws, Object, Attribute) ->
@@ -162,9 +166,11 @@ get(Ws, Object, Attribute) ->
 	  Attribute::integer()|atom()|string()|list(),
 	  Value::term()) -> ok | {error,Reason::term()}.
 
-set(Ws, Object, [LeafAttribute], Value) when is_list(LeafAttribute) ->
+set(Ws, Object, [LeafAttribute], Value) when is_list(LeafAttribute);
+					     is_atom(LeafAttribute) ->
     rsync(Ws, {set, Object, LeafAttribute, Value});
-set(Ws, Object, [Attribute | SubAttributes], Value) when is_list(Attribute) ->
+set(Ws, Object, [Attribute | SubAttributes], Value) when is_list(Attribute);
+							 is_atom(Attribute) ->
     {ok, AttributeObject} = get(Ws, Object, Attribute),
     set(Ws, AttributeObject, SubAttributes, Value);
 set(Ws, Object, Attribute, Value) ->
@@ -455,6 +461,37 @@ load_image(Ws, Parent, Src) ->
 	Error -> 
 	    Error
     end.
+
+
+%% @doc
+%%   Load an image into the document head and return 
+%%   image the object. Using event handler and onload
+%% @end
+-spec load_video(Ws::wse(), Src::url(), Width::integer(), Height::integer()) ->
+	  {ok,Video::wse_object()}.
+
+load_video(Ws, Src, Width, Height) ->
+    {ok,Heads} = getElementsByTagName(Ws, "head"),
+    {ok,Head} = get(Ws, Heads, 0),
+    load_video(Ws, Head, Src, Width, Height).
+
+-spec load_video(Ws::wse(), Parent::wse_object(), Src::url(), 
+		 Width::integer(), Height::integer()) ->
+	  {ok,Video::wse_object()}.
+%% Load image into a child (like a div tag)
+load_video(Ws, Parent, Src, Width, Height) ->
+    Video = createElement(Ws, "video"),
+    setStyle(Ws, Video, "display:none"),
+    set(Ws, Video, width, Width),
+    set(Ws, Video, height, Height),
+    set(Ws, Video, controls, true),
+    Source = createElement(Ws, "source"),
+    appendChild(Ws, Video, Source),
+    set(Ws, Source, "src", Src),
+    set(Ws, Source, "type", "video/mp4"),
+    appendChild(Ws, Parent, Video),
+    {ok, Video}.
+
 
 wait_image_loaded(Ws, Parent, Image, Src, Timeout) ->
     ID = init_image_onload(Ws, Parent, Image, Src),
