@@ -41,6 +41,7 @@
 -export([wait_event/2]).
 -export([wait_events/2]).
 -export([createElement/2]).
+-export([createElementNS/3]).
 -export([createTextNode/2]).
 -export([getElementsByTagName/2]).
 -export([getElementById/2]).
@@ -314,8 +315,13 @@ wait_events_([],_Timeout,Acc) ->
 %% @end
 -spec createElement(Ws::wse(), Name::string()) -> wse_object().
 createElement(Ws, Name) ->
-    %% io:format("createElement: ~p\n", [Name]),
     {ok,E} = call(Ws, document(), createElement, [Name]),
+    E.
+
+
+-spec createElementNS(Ws::wse(), Ns::string(), Name::string()) -> wse_object().
+createElementNS(Ws, Ns, Name) ->
+    {ok,E} = call(Ws, document(), createElementNS, [Ns, Name]),
     E.
 
 %% @doc
