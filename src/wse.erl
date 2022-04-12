@@ -43,9 +43,12 @@
 -export([createElement/2]).
 -export([createElementNS/3]).
 -export([createTextNode/2]).
+-export([remove/2]).
 -export([getElementsByTagName/2]).
 -export([getElementById/2]).
+-export([getAttribute/3]).
 -export([appendChild/3]).
+-export([setAttribute/4]).
 -export([setStyle/3]).
 -export([load/2]).
 -export([load_image_sync/2]).
@@ -72,7 +75,7 @@
 
 -type dom_id() :: atom()|string().
 -type html_tag() :: atom().
--type attr_name() :: atom().
+-type attr_name() :: atom()|string()|list().
 -type attr_value() :: atom()|string()|integer().
 -type html_attr() :: {attr_name(),attr_value()}.
 -type ehtml() :: atom() | string() | integer() |
@@ -164,7 +167,7 @@ get(Ws, Object, Attribute) ->
 %%   Set attibute or array at index
 %% @end
 -spec set(Ws::wse(), Object::wse_object(), 
-	  Attribute::integer()|atom()|string()|list(),
+	  Attribute::attr_name(),
 	  Value::term()) -> ok | {error,Reason::term()}.
 
 set(Ws, Object, [LeafAttribute], Value) when is_list(LeafAttribute);
@@ -335,13 +338,32 @@ createTextNode(Ws, Text) ->
     {ok,E} = call(Ws, document(), createTextNode, [Text]),
     E.
 
+-spec remove(Ws::wse(), Element::wse_object()) ->
+		    void().
+
+remove(Ws, Element) ->
+    call(Ws, Element, remove, []).
+
+%% 
+%% Set attribute value
+%%
+-spec setAttribute(Ws::wse(), Obj::wse_object(), 
+		   Attribute::attr_name(), Value::attr_value()) -> ok.
+setAttribute(Ws, Obj, Attribute, Value) ->
+    {ok,_E} = call(Ws, Obj, setAttribute, [Attribute, Value]),
+    ok.
+
+-spec getAttribute(Ws::wse(), Obj::wse_object(), 
+		   Attribute::attr_name()) -> {ok,Value::attr_value()}.
+getAttribute(Ws, Obj, Attribute) ->
+    call(Ws, Obj, getAttribute, [Attribute]).
+
 %% 
 %% Set attribute values (FIXME, need special call)
 %%
 -spec setStyle(Ws::wse(), Obj::wse_object(), Value::string()) -> ok.
 setStyle(Ws, Obj, Value) ->
-    {ok,E} = call(Ws, Obj, setAttribute, ["style", Value]),
-    E.
+    setAttribute(Ws, Obj, style, Value).
 
 %% @doc
 %%   Short cut for
@@ -383,7 +405,6 @@ getElementsByTagName(Ws, Name) ->
 			    {error,Reason::string()}.
 getElementById(Ws, ID) ->
     call(Ws, document(), getElementById, [ID]).
-
 
 %% @doc 
 %%    Get first child
