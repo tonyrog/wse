@@ -453,15 +453,16 @@ load_images(Ws, Parent, Files) ->
 	[begin
 	     Image = createElement(Ws, "img"),
 	     setStyle(Ws, Image, "display:none"),	 
-	     ID = init_image_onload(Ws, Parent, Image, Src),
-	     {ID, Image} 
+	     {ok,{ID,Script}} = init_image_onload(Ws, Parent, Image, Src),
+	     {ID, Script, Image} 
 	 end || Src <- Files],
-    {ok,_} = wait_events([ID || {ID,_} <- IDList], 5000),
+    {ok,_} = wait_events([ID || {ID,_,_} <- IDList], 5000),
     lists:foreach(
-      fun({_ID, Image}) ->
+      fun({_ID, Script, Image}) ->
+	      remove(Ws, Script),
 	      appendChild(Ws, Parent, Image)
       end, IDList),
-    {ok, [Image || {_,Image} <- IDList]}.
+    {ok, [Image || {_,_,Image} <- IDList]}.
     
 %% @doc
 %%   Load an image into the document head and return 
@@ -521,15 +522,17 @@ load_video(Ws, Parent, Src, Width, Height) ->
 
 
 wait_image_loaded(Ws, Parent, Image, Src, Timeout) ->
-    ID = init_image_onload(Ws, Parent, Image, Src),
-    wait_event(ID, Timeout).
+    {ok,{ID,Script}} = init_image_onload(Ws, Parent, Image, Src),
+    R = wait_event(ID, Timeout),
+    remove(Ws, Script),
+    R.
 
 init_image_onload(Ws, Parent, Image, Src) ->
     {ok,ID} = create_event(Ws),
     {ok,LoadedScript} = make_notify_script(Ws,Parent,ID),
     set(Ws, Image, onload, LoadedScript),
     set(Ws, Image, "src", Src),
-    ID.
+    {ok,{ID,LoadedScript}}.
 
 %% Create Wse.notify loaded script
 make_notify_script(Ws,Parent,ID) ->

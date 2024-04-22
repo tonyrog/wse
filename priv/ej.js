@@ -38,6 +38,8 @@ function EiClass() {
     this.LARGE_TUPLE = 105;
     this.NIL = 106;
     this.MAP = 116;
+    this.ATOM_UTF8 = 115;        
+    this.SMALL_ATOM_UTF8 = 119;    
     
     this.use_map = false;         // use map when available
     this.use_small_atom = true;   // use small atom when available
@@ -452,18 +454,18 @@ EiClass.prototype.encode_atom_string = function (Name,dv,pos) {
     var len = Name.length;
     var i;
     if ((len < 256) && this.use_small_atom) {
-	dv.setUint8(pos, this.SMALL_ATOM);
+	dv.setUint8(pos, this.SMALL_ATOM_UTF8);
 	dv.setUint8(pos+1, len);
 	pos += 2;
     }
     else if (len < 65536) {
-	dv.setUint8(pos, this.ATOM);
+	dv.setUint8(pos, this.ATOM_UTF8);
 	dv.setUint16(pos+1, len, false);
 	pos += 3;
     }
     else
 	throw("bad atom: too big");
-    return this.string_to_bytes(Name,dv,pos,len);
+    return this.unicode_to_bytes(Name,dv,pos,len);
 }
 
 
@@ -563,6 +565,8 @@ EiClass.prototype.decode_size_term = function (dv,pos) {
     case this.NIL: break;
     case this.SMALL_ATOM: L = 1+dv.getUint8(pos); break;
     case this.ATOM:       L = 2+dv.getUint16(pos,false); break;
+    case this.SMALL_ATOM_UTF8: L = 1+dv.getUint8(pos); break;
+    case this.ATOM_UTF8:       L = 2+dv.getUint16(pos,false); break;
     case this.BINARY:     L = 4+dv.getUint32(pos,false); break;
     case this.SMALL_INTEGER: L = 1; break;
     case this.INTEGER:	L = 4; break;
@@ -625,9 +629,13 @@ EiClass.prototype.decode_term = function (dv,pos) {
     case this.NIL:
 	R = []; break;
     case this.SMALL_ATOM:
-	R = this.decode_atom_bytes(dv,pos+1,dv.getUint8(pos)); break;
+	R = this.decode_latin1_atom_bytes(dv,pos+1,dv.getUint8(pos)); break;
     case this.ATOM:
-	R = this.decode_atom_bytes(dv,pos+2,dv.getUint16(pos,false)); break;
+	R = this.decode_latin1_atom_bytes(dv,pos+2,dv.getUint16(pos,false)); break;
+    case this.SMALL_ATOM_UTF8:
+	R = this.decode_utf8_atom_bytes(dv,pos+1,dv.getUint8(pos)); break;
+    case this.ATOM_UTF8:
+	R = this.decode_utf8_atom_bytes(dv,pos+2,dv.getUint16(pos,false)); break;
     case this.BINARY:
 	R = this.decode_binary(dv,pos); break;
     case this.SMALL_INTEGER:
@@ -665,8 +673,18 @@ EiClass.prototype.decode_term = function (dv,pos) {
     return R;
 };
 
-EiClass.prototype.decode_atom_bytes = function (dv,pos,len) {
-    var S = this.bytes_to_string(dv,pos,len);
+EiClass.prototype.decode_utf8_atom_bytes = function (dv,pos,len) {
+    var S = this.utf8_to_string(dv,pos,len);
+    if (S === "true")
+	return true;
+    else if (S === "false")
+	return false;
+    return new this.atom(S);
+};
+
+
+EiClass.prototype.decode_latin1_atom_bytes = function (dv,pos,len) {
+    var S = this.latin1_to_string(dv,pos,len);
     if (S === "true")
 	return true;
     else if (S === "false")
@@ -784,6 +802,41 @@ EiClass.prototype.decode_map = function (dv,pos,len) {
     return Obj;
 };
 
+// Convert an array of (latin1) bytes into a string.
+EiClass.prototype.latin1_to_string = function (dv,pos,count) {
+    var i, s = "";
+    for (i = 0; i < count; i++,pos++)
+	s += String.fromCharCode(dv.getUint8(pos));
+    return s;
+};
+
+// Convert an array of utf8 bytes into a unicode string. FIXME!
+EiClass.prototype.utf8_to_string = function (dv,pos,count) {
+    var s = "";
+    while(count > 0) {
+	var c1 = dv.getUint8(pos++);
+	if (c1 < 128) {
+	    // 7-bit code (ascii)
+	    s += String.fromCharCode(c1);
+	    count--;
+	} else if ((c1 > 191) && (c1 < 224)) {
+	    // 11-bit code
+	    var c2 = dv.getUint8(pos++);
+	    s += String.fromCharCode(((c1 & 31) << 6) | (c2 & 63));
+	    count -= 2;
+	} else if ((c1 > 223) && (c1 < 240)) {
+	    // 16-bit code	    
+	    var c2 = dv.getUint8(pos++);
+	    var c3 = dv.getUint8(pos++);
+	    s += String.fromCharCode(((c1 & 15) << 12) | ((c2 & 63) << 6) | (c3 & 63));
+	    count -= 3;	    
+	} else {
+	    throw ("bad utf8");  // bad for java script! fixme?
+	}
+    }
+    return s;
+};
+
 
 // Convert an array of bytes into a string.
 EiClass.prototype.bytes_to_string = function (dv,pos,count) {
@@ -798,6 +851,14 @@ EiClass.prototype.string_to_bytes = function (Obj,dv,pos,count) {
     var i;
     for (i = 0; i < count; i++, pos++)
 	dv.setUint8(pos, Obj.charCodeAt(i));
+    return pos;
+};
+
+// write string as utf8 bytes (FIXME!)
+EiClass.prototype.unicode_to_bytes = function (Obj,dv,pos,count) {
+    var i;
+    for (i = 0; i < count; i++, pos++)
+	dv.setUint8(pos, 127 & Obj.charCodeAt(i));
     return pos;
 };
 

@@ -308,7 +308,7 @@ ws_loop(Buf, Socket, S) ->
     receive
 	%% WebSocket stuff
 	{tcp, Socket, Data} ->
-	    %% ?debug("tcp ~w: ~p", [Socket, Data]),
+	    ?debug("tcp ~w: ~p", [Socket, Data]),
 	    ws_data(Buf, Data, Socket, S);
 
 	{tcp_closed, Socket} ->
@@ -355,37 +355,44 @@ ws_loop(Buf, Socket, S) ->
     end.
 
 ws_data(Buf, Data, Socket, S) ->
-    case <<Buf/binary, Data/binary>> of
+    ws_data(<<Buf/binary, Data/binary>>, Socket, S).
+
+ws_data(<<>>, Socket, S) ->
+    inet:setopts(Socket, [{active, once}]),
+    ?MODULE:ws_loop(<<>>, Socket, S);
+ws_data(Buf, Socket, S) ->
+    case Buf of
 	%% masked data
 	<<Fin:1,_Rsv:3,Op:4,1:1,126:7,L:16,M:4/binary,Frag:L/binary,Buf1/binary>> ->
-	    %% ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
+	    ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
 	    Frag1 = ws_mask(M, Frag),
 	    S1 = ws_fragment(Socket, Fin, Op, Frag1, S),
-	    ws_data(Buf1, <<>>, Socket, S1);
+	    ws_data(Buf1, Socket, S1);
 	<<Fin:1,_Rsv:3,Op:4,1:1,127:7,L:64,M:4/binary,Frag:L/binary,Buf1/binary>> ->
-	    %% ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
+	    ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
 	    Frag1 = ws_mask(M, Frag),
 	    S1 = ws_fragment(Socket,Fin, Op, Frag1, S),
-	    ws_data(Buf1, <<>>, Socket, S1);
+	    ws_data(Buf1, Socket, S1);
 	<<Fin:1,_Rsv:3,Op:4,1:1,L:7,M:4/binary,Frag:L/binary,Buf1/binary>> ->
-	    %% ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
+	    ?debug("unmask fragment: mask=~p, frag=~p", [M, Frag]),
 	    Frag1 = ws_mask(M, Frag),
 	    S1 = ws_fragment(Socket,Fin, Op, Frag1, S),
-	    ws_data(Buf1, <<>>, Socket, S1);
+	    ws_data(Buf1, Socket, S1);
 	%% non masked data
 	<<Fin:1,_Rsv:3,Op:4,0:1,126:7,L:16,Frag:L/binary,Buf1/binary>> ->
 	    S1 = ws_fragment(Socket,Fin, Op, Frag, S),
-	    ws_data(Buf1, <<>>, Socket, S1);
+	    ws_data(Buf1, Socket, S1);
 	<<Fin:1,_Rsv:3,Op:4,0:1,127:7,L:64,Frag:L/binary,Buf1/binary>> ->
 	    S1 = ws_fragment(Socket,Fin, Op, Frag, S),
 	    ws_data(Buf1, <<>>, Socket, S1);
 	<<Fin:1,_Rsv:3,Op:4,0:1,L:7,Frag:L/binary,Buf1/binary>> ->
 	    S1 = ws_fragment(Socket,Fin, Op, Frag, S),
-	    ws_data(Buf1, <<>>, Socket, S1);
-	Buf1 -> %% handle to large messages and mal formed
-	    inet:setopts(Socket, [{active, once}]),
-	    ?MODULE:ws_loop(Buf1, Socket, S)
+	    ws_data(Buf1, Socket, S1)
+%%	Buf1 -> %% handle to large messages and mal formed
+%%	    inet:setopts(Socket, [{active, once}]),
+%%	    ?MODULE:ws_loop(Buf1, Socket, S)
     end.
+
 
 ws_mask(<<M:32>>, Frag) ->
     Frag1 = << <<(X bxor M):32>> || <<X:32>> <= Frag >>,
