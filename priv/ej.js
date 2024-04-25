@@ -453,6 +453,8 @@ EiClass.prototype.encode_term = function (Obj,dv,pos) {
 EiClass.prototype.encode_atom_string = function (Name,dv,pos) {
     var len = Name.length;
     var i;
+    // fix length should be number of bytes in utf8 encoding
+    // now characters are truncated to 7 bits!
     if ((len < 256) && this.use_small_atom) {
 	dv.setUint8(pos, this.SMALL_ATOM_UTF8);
 	dv.setUint8(pos+1, len);

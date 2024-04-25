@@ -40,10 +40,10 @@
 
 -record(event,
 	{
-	  iref,      %% global integer reference
-	  from,      %% [owner local reference | event owner pid]
-	  how=once,  %% once | all | none
-	  data       %% local data for events
+	  iref,        %% global integer reference
+	  from,        %% [owner local reference | event owner pid]
+	  how = once,  %% once | all | none
+	  data         %% local data for events
 	}).
 
 -record(ws_header,
@@ -493,6 +493,19 @@ handle_local({create_event,From,How,Data},_Socket,S0) ->
     reply(Event, {ok, IRef}),
     {noreply,S0#s { iref=next_ref(IRef), wait=Wait1 }};
 
+handle_local({create_user_event,From,UserRef,How,Data},_Socket,S0) ->
+    Event = #event { iref=UserRef, from=From, how=How, data=Data},
+    case lists:keytake(UserRef, #event.iref, S0#s.wait) of
+	false -> %% insert new
+	    Wait1 = [Event|S0#s.wait],
+	    reply(Event, {ok, UserRef}),
+	    {noreply,S0#s { wait=Wait1 }};
+	{value,_Event1,Wait1} -> %% update event
+	    %% fixme? notify old handler about replace?
+	    Wait2 = [Event|Wait1],
+	    reply(Event, {ok, UserRef}),
+	    {noreply,S0#s { wait=Wait2 }}
+    end;
 handle_local({header, From},_Socket,S0=#s{header = Header}) ->
     ?debug("header: all\n", []),    
     reply(#event {from=From}, {ok, Header#ws_header.hs}),
@@ -574,14 +587,14 @@ handle_mesg({noreply,IRef},_Socket,S0) ->
 	    S0#s { wait=Wait1}
     end;
 handle_mesg({notify,IRef,RemoteData},_Socket,S0) ->
-    ?info("notify: ~w ~p\n", [IRef,RemoteData]),
     case lists:keytake(IRef,#event.iref, S0#s.wait) of
 	false ->
+	    ?info("notify: ~p ~p\n", [IRef,RemoteData]),
 	    S0;
 	{value,E,Wait1} ->
 	    [_Ref|Pid] = E#event.from,
 	    Pid ! {notify,IRef,E#event.data,RemoteData},
-	    if E#event.how == all ->
+	    if E#event.how =:= all ->
 		    S0;
 	       true ->
 		    S0#s { wait=Wait1}

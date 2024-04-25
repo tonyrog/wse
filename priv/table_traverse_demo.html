@@ -1,0 +1,49 @@
+<html>
+<head>
+<title>Table traverse demo page</title>
+<script src='ej.js'></script>
+<script src='wse.js'></script>
+<script>
+
+window.onload = function() {
+   if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession")) {
+      Wse.start('wse_table_traverse_demo', 'run', ["r1"]);
+   }
+   else
+     alert("WebSockets not supported");
+};
+
+</script>
+</head>
+<body>
+  <table id="t1" style="font-size: 24; border: 1px solid; width=100%; ">
+    <thead id="h1">      
+      <tr id="rh1" style="color: blue">
+	<th id="h01">Track</th>
+	<th id="h02">Artist</th>
+	<th id="h03">Album</th>
+	<th id="h04">Duration</th>
+      </tr>
+    </thead>
+    <tbody id="b1">
+      <tr id="r1">
+        <td id="d11">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr id="r2"><td id="d21">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr id="r3"><td id="d31">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr id="r4"><td id="d41">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr id="r5"><td id="d51">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr id="r6"><td id="d61">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr id="r7"><td id="d71">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr id="r8"><td id="d81">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr id="r9"><td id="d91">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+      <tr  id="r10"><td id="dA1">&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>
+
+    </tbody>
+    <tfoot id="f1">
+      <tr id="rf1" style="color: blue">
+	<th id="dB1">0</th><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+      </tr>
+    </tfoot>
+  </table>  
+</body>
+</html>

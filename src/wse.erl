@@ -38,6 +38,7 @@
 -export([id/1]).
 -export([array/1]).
 -export([create_event/1, create_event/3]).
+-export([create_user_event/4]).
 -export([wait_event/2]).
 -export([wait_events/2]).
 -export([createElement/2]).
@@ -46,10 +47,13 @@
 -export([remove/2]).
 -export([getElementsByTagName/2]).
 -export([getElementById/2]).
+-export([firstChild/2, lastChild/2, nextSibling/2]).
+-export([firstElementChild/2, lastElementChild/2, nextElementSibling/2]).
 -export([getAttribute/3]).
 -export([appendChild/3]).
 -export([setAttribute/4]).
 -export([setStyle/3]).
+
 -export([load/2]).
 -export([load_image_sync/2]).
 -export([load_image/2, load_image/3]).
@@ -264,8 +268,24 @@ create_event(Ws) ->
 			  {ok, wse_event()}.
 
 create_event(Ws,How,Data) ->
-    Ref = make_ref(),    
+    Ref = make_ref(),
     Ws ! {create_event,[Ref|self()],How,Data},
+    receive
+	{reply, Ref, Reply} ->
+	    Reply
+    end.
+
+%% @doc
+%%   Create event where reference is define by user. This allow
+%%   for direct notification by names/string from java script etc
+%% @end
+-spec create_user_event(Ws::wse(), UserRef::term(), 
+			How::once|all, Data::term()) ->
+	  {ok, wse_event()}.
+
+create_user_event(Ws,UserRef,How,Data) ->
+    Ref = make_ref(),
+    Ws ! {create_user_event,[Ref|self()],UserRef,How,Data},
     receive
 	{reply, Ref, Reply} ->
 	    Reply
@@ -412,17 +432,26 @@ getElementById(Ws, ID) ->
 firstChild(Ws, Object) ->
     get(Ws, Object, firstChild).
 
+firstElementChild(Ws, Object) ->
+    get(Ws, Object, firstElementChild).
+
 %% @doc 
 %%    Get last child
 %% @end
 lastChild(Ws, Object) ->
     get(Ws, Object, lastChild).
 
+lastElementChild(Ws, Object) ->
+    get(Ws, Object, lastElementChild).
+
 %% @doc
 %%    Get next sibling
 %% @end
 nextSibling(Ws, Object) ->
     get(Ws, Object, nextSibling).
+
+nextElementSibling(Ws, Object) ->
+    get(Ws, Object, nextElementSibling).
 
 %% @doc
 %%   Load an image into the document head and return 

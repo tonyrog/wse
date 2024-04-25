@@ -79,7 +79,7 @@
     });
 }());
 
-var wse_console_debug = true;
+var wse_console_debug = false;
 //
 // window.onerror = function(message, url, line)
 //    console.low("window error was invoked with message = " +
@@ -152,7 +152,7 @@ WseClass.prototype.decode = function(Data) {
     return Ei.decode(Data, 0);
 };
 
-// Decide an Erlang term that represent a json object into a
+// Decode an Erlang term that represent a json object into a
 // native json object i.e {struct,[{a,1},{b,2}]} => { a:1, b:2 }
 WseClass.prototype.decode_js = function(Data) {
     switch(typeof(Data)) {
