@@ -1,0 +1,17 @@
+<html>
+  <head>
+    <meta charset="UTF-8"/>
+    <title>text demo page</title>
+    <script src='ej.js'></script>
+    <script src='wse.js'></script>
+    <script>
+      window.onload = function() {
+	  if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession"))
+	      Wse.start('wse_text_demo', 'run', [["a", "b"]]);
+      };
+  </script></head>
+  <body>
+    <p id="a" style="font-size: 24">Hello, japan!</p>
+    <p id="b" style="font-size: 36">宮崎駿 is playing</p>
+  </body>
+</html>
