@@ -42,12 +42,14 @@ function EiClass() {
     this.SMALL_ATOM_UTF8 = 119;    
 
     // Encoding options
-    this.use_map = false;         // use map when available
-    
+    this.encode_assoc_map = false;      // use map when available
     this.encode_utf8_atom = true;       // encode atoms as utf8
     this.encode_unicode_strings = true; // encode string as 16-bit code points
-    this.encode_utf8_strings = false;    // encode string as utf8 bytes
-    this.decode_string_utf8 = true;  // decode list as unicode string
+    this.encode_utf8_strings = false;   // encode string as utf8 bytes
+
+    this.decode_string_utf8 = true;     // decode list as unicode string
+    this.decode_binary_utf8 = true;     // decode binary as utf8 string
+    this.decode_binary_latin1 = true;   // decode binary as latin1 string
     this.decode_list_string = true;  // try decode list as string
     this.decode_list_utf8 = true;    // try decode list as utf8 string
 };
@@ -424,13 +426,13 @@ EiClass.prototype.byte_size_associative_array = function (Obj) {
 	}
     }
     if (N == 0) {
-	if (!this.use_map)
+	if (!this.encode_assoc_map)
 	    Size = 4;   // map size
 	else
 	    Size = 0    // nil
     }
     else {
-	if (!this.use_map)
+	if (!this.encode_assoc_map)
 	    Size += N*2;  // add N small tuples
 	Size += 4;  // list or map size
     }
@@ -738,12 +740,12 @@ EiClass.prototype.encode_associative_array = function (Obj,dv,pos) {
     var N = this.assoc_num_keys(Obj);
     if (N > 0) {
 	var key;
-	dv.setUint8(pos, this.use_map ? this.MAP : this.LIST);
+	dv.setUint8(pos, this.encode_assoc_map ? this.MAP : this.LIST);
 	dv.setUint32(pos+1,N,false);
 	pos += 5
 	for (key in Obj) {
 	    if (Obj.hasOwnProperty(key)) {
-		if (!this.use_map) {
+		if (!this.encode_assoc_map) {
 		    dv.setUint8(pos++, this.SMALL_TUPLE);
 		    dv.setUint8(pos++, 2);
 		}
@@ -752,9 +754,9 @@ EiClass.prototype.encode_associative_array = function (Obj,dv,pos) {
 	    }
 	}
     }
-    if (!this.use_map)
+    if (!this.encode_assoc_map)
 	dv.setUint8(pos++,this.NIL);
-    else if (this.use_map && (N == 0)) {  // special case for empty map
+    else if (this.encode_assoc_map && (N == 0)) { // special case for empty map
 	dv.setUint8(pos, this.MAP);
 	dv.setUint32(pos+1,0,false);
 	pos += 5;
@@ -914,8 +916,16 @@ EiClass.prototype.decode_latin1_atom_bytes = function (dv,pos,len) {
 
 EiClass.prototype.decode_binary = function (dv,pos) {
     var Size = dv.getUint32(pos, false);
-    var Bin  = new Uint8Array(dv.buffer, pos+4, Size);
-    return this.binary(Bin);
+    if (this.decode_binary_utf8) {
+	return this.utf8_to_string(dv,pos+4,Size);
+    }
+    else if (this.decode_binary_latin1) {
+	return this.latin1_to_string(dv,pos+4,Size);
+    }    
+    else {
+	var Bin  = new Uint8Array(dv.buffer,pos+4, Size);
+	return this.binary(Bin);
+    }
 };
 
 EiClass.prototype.decode_big_bytes = function (dv,pos,len) {

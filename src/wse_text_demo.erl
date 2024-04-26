@@ -19,6 +19,9 @@ loop(Ws, Ap, Bp) ->
     timer:sleep(3000),
     set_p_text(Ws, Ap, "en", "Hello, world!"),
     set_p_text(Ws, Bp, "en", "Röyksopp is playing"),
+    timer:sleep(3000),
+    set_p_text(Ws, Ap, "en", "Film time3"),
+    set_p_text(Ws, Bp, "jap", <<"宮崎駿 is playing"/utf8>>),
     loop(Ws, Ap, Bp).
 
 set_p_text(Ws, P, Lang, Text) ->

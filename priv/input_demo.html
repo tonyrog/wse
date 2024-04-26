@@ -1,0 +1,30 @@
+<html>
+  <head>
+    <meta charset="UTF-8"/>
+    <title>text demo page</title>
+    <script src='ej.js'></script>
+    <script src='wse.js'></script>
+    <script>
+      window.onload = function() {
+	  if (Wse.open("ws://"+(location.hostname||"localhost")+":1234/websession"))
+	      Wse.start('wse_input_demo', 'run', ["t1"]);
+      };
+  </script></head>
+  <body>
+    <table id="t1" style="font-size: 24; border: 1px solid; margin-left:auto; margin-right:auto; margin-top:10%; ">
+      <tr id="r1">
+	<td>Paste URL and hit enter</td>
+      <tr id="r2">
+	<td>
+	  <form onsubmit="Wse.notify('submit1',
+			  document.getElementById('i1').value);">
+	    URL<input id="i1"
+		      type="text"
+		      oninput="Wse.notify('key1',
+			       document.getElementById('i1').value);"/>
+	  </form>
+	</td>
+      </tr>
+    </table>
+  </body>
+</html>
